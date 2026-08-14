@@ -178,13 +178,13 @@ def detection_facets(rows):
     }
 
 
-def add_filter_bar(table, facets, on_change):
+def add_filter_bar(table, filters, facets, on_change):
     """Add a name input + label/tracker/message dropdowns above a table.
 
-    ``on_change()`` is called whenever a filter changes so the table can
-    re-request its page. Dropdown options come from ``facets``.
+    ``filters`` is the shared dict the table's fetcher reads; ``on_change()``
+    is called whenever a filter changes so the table can re-request its page.
+    Dropdown options come from ``facets``.
     """
-    filters = {"name": "", "label": "All", "tracker": "All", "message": "All"}
 
     def set_filter(key, value):
         filters[key] = value
@@ -203,8 +203,6 @@ def add_filter_bar(table, facets, on_change):
         ui.select(
             ["All"] + facets["categories"], value="All", on_change=lambda e: set_filter("message", e.value)
         ).props("outlined dense").classes("w-52")
-
-    return filters
 
 
 def paged_table(columns, fetcher, page_size=25, row_key="id", facets=None, actions=None):
@@ -261,7 +259,7 @@ def paged_table(columns, fetcher, page_size=25, row_key="id", facets=None, actio
 
     table.on("request", on_request)
     if facets:
-        add_filter_bar(table, facets, lambda: load(page=1))
+        add_filter_bar(table, filters, facets, lambda: load(page=1))
     if actions:
         actions(table)
     load()

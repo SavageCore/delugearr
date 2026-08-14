@@ -6,7 +6,7 @@ without needing a browser.
 """
 
 import pytest
-from nicegui import ui
+from nicegui import events, ui
 from nicegui.testing import user_simulation
 
 from delugearr import config
@@ -125,7 +125,53 @@ async def test_dashboard_request_event_serves_page(runtime):
         assert dashboard_table.rows[0]["name"] == "Some.Release.50"
 
 
-async def test_settings_renders(runtime):
+async def test_dashboard_filters_reload_from_server(runtime):
+    """Filtering/search must re-request with the filter applied (shared filters dict)."""
+    store, scanner = runtime
+    for i in range(20):
+        store.log_detection(
+            "20260101-000000",
+            {
+                "hash": f"h{i}",
+                "name": f"Some.Release.{i}",
+                "label": "tv-sonarr" if i % 2 == 0 else "radarr",
+                "tracker_host": "tracker.example.org",
+                "total_size": 123,
+            },
+            "Error: Unregistered torrent",
+            "unregistered",
+            "would_remove_data",
+            True,
+        )
+    async with user_simulation(root=lambda: _dashboard(store, scanner)) as user:
+        await user.open("/")
+        tables = [e for e in user.client.elements.values() if isinstance(e, ui.table)]
+        dashboard_table = max(tables, key=lambda t: len(t.rows))
+        assert len(dashboard_table.rows) == 20
+
+        user.find(ui.input).trigger("update:value", "Some.Release.5")
+        assert len(dashboard_table.rows) == 1
+        assert dashboard_table.rows[0]["name"] == "Some.Release.5"
+        assert dashboard_table.pagination["rowsNumber"] == 1
+
+        # dropdown filters go through the same shared dict (browser sends {value, label})
+        user.find(ui.input).trigger("update:value", "")
+        label_select = next(
+            e for e in user.client.elements.values() if isinstance(e, ui.select) and "radarr" in e.options
+        )
+        for listener in label_select._event_listeners.values():  # pylint: disable=protected-access
+            if listener.type == "update:modelValue":
+                with user.client:
+                    events.handle_event(
+                        listener.handler,
+                        events.GenericEventArguments(
+                            sender=label_select,
+                            client=user.client,
+                            args=label_select._value_to_model_value("radarr"),
+                        ),
+                    )
+        assert len(dashboard_table.rows) == 10
+        assert dashboard_table.pagination["rowsNumber"] == 10
     store, scanner = runtime
     async with user_simulation(root=lambda: _settings(store, scanner)) as user:
         await user.open("/")
