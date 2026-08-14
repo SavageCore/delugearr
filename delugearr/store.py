@@ -15,6 +15,7 @@ DEFAULTS = {
     "excluded_labels": [],
     "keep_data_paths": [],
     "extra_ignore": [],
+    "storage_secret": None,
     "last_scan_at": None,
     "last_scan_stats": None,
     "last_scan_error": None,

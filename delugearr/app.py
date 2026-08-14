@@ -1,18 +1,24 @@
 """delugearr bootstrap: NiceGUI UI mounted at /delugearr, ops API, scheduler.
 
-The web layer is rebuilt with NiceGUI (Vue/Quasar) and served behind nginx on a
-base path (no subdomain). The FastAPI app owns both the NiceGUI mount and a
-small JSON API used for ops/health checks.
+The web layer uses NiceGUI (Vue/Quasar) and is served behind nginx on a base
+path (no subdomain). The FastAPI app owns the NiceGUI mount and a small JSON
+API for ops/health checks. All NiceGUI pages are protected by an auth
+middleware + login page (nginx basic auth stays as defense in depth).
 """
 
 import logging
+import os
+import secrets
 import threading
 import time
 from logging.handlers import RotatingFileHandler
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
+from nicegui import app as nicegui_app
 from nicegui import ui
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import config
 from . import ui as ui_module
@@ -20,6 +26,8 @@ from .scanner import Scanner
 from .store import Store
 
 log = logging.getLogger("delugearr")
+
+UNRESTRICTED_PATHS = {"", "/login", "/favicon.ico"}
 
 
 class Scheduler(threading.Thread):
@@ -40,6 +48,37 @@ class Scheduler(threading.Thread):
             settings = self.store.get_settings()
             interval = max(60, int(settings.get("interval_minutes") or 30)) * 60
             time.sleep(interval)
+
+
+@nicegui_app.add_middleware
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Redirect unauthenticated visitors to /login.
+
+    The middleware runs on the NiceGUI app where request paths may still carry
+    the mount prefix (/delugearr/...), so paths are normalised against
+    root_path before the unrestricted check and before building redirect_to.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        root_path = request.scope.get("root_path", "")
+        relative = path[len(root_path) :] if root_path and path.startswith(root_path) else path
+        relative = relative or "/"
+        if (
+            nicegui_app.storage.user.get("authenticated")
+            or relative in UNRESTRICTED_PATHS
+            or relative.startswith("/_nicegui")
+        ):
+            return await call_next(request)
+        return RedirectResponse(f"{root_path}/login?redirect_to={relative}")
+
+
+def _storage_secret(store):
+    secret = os.environ.get("STORAGE_SECRET") or store.get_settings().get("storage_secret")
+    if not secret:
+        secret = secrets.token_hex(32)
+        store.update_settings(storage_secret=secret)
+    return secret
 
 
 def create_app(store, scanner):
@@ -72,8 +111,8 @@ def create_app(store, scanner):
         fastapi_app,
         mount_path=config.base_path(),
         title="Delugearr",
-        dark=True,
-        storage_secret=None,
+        dark=None,
+        storage_secret=_storage_secret(store),
         show_welcome_message=False,
     )
     return fastapi_app

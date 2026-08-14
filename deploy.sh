@@ -3,10 +3,10 @@
 # Also removes the legacy deluge-unregistered service/config.
 #
 # Usage:
-#   DELUGE_PASSWORD='...' ./deploy.sh
+#   DELUGE_PASSWORD='...' AUTH_PASSWORD='...' ./deploy.sh
 #
-# The config password comes from $DELUGE_PASSWORD; if unset, any existing
-# /etc/delugearr/config on the box is left untouched.
+# Config is (re)written only when at least one secret is provided; otherwise
+# the existing /etc/delugearr/config is left untouched.
 set -euo pipefail
 
 SEEDBOX="${SEEDBOX:-root@seedbox.savagecore.uk}"
@@ -31,20 +31,24 @@ ssh "$SEEDBOX" "cd ${REMOTE_DIR} && (test -d venv || python3 -m venv venv) && ve
 
 echo "== Config"
 ssh "$SEEDBOX" "install -d -o savagecore -g savagecore /etc/delugearr"
-if [ -n "${DELUGE_PASSWORD:-}" ]; then
+if [ -n "${DELUGE_PASSWORD:-}" ] || [ -n "${AUTH_PASSWORD:-}" ]; then
+  [ -n "${DELUGE_PASSWORD:-}" ] || echo "  WARNING: DELUGE_PASSWORD unset (Deluge access will fail)"
+  [ -n "${AUTH_PASSWORD:-}" ] || echo "  WARNING: AUTH_PASSWORD unset (web login will fail)"
   echo "  writing /etc/delugearr/config"
   ssh "$SEEDBOX" "umask 177; cat > /etc/delugearr/config <<EOF
 DELUGE_URL=${DELUGE_URL:-http://127.0.0.1:10376}
-DELUGE_PASSWORD=${DELUGE_PASSWORD}
+DELUGE_PASSWORD=${DELUGE_PASSWORD:-}
 PORT=${PORT}
 BASE_PATH=${BASE_PATH}
 CONFIG_PATH=/etc/delugearr
 DRY_RUN=${DRY_RUN}
 SCAN_INTERVAL_MINUTES=${INTERVAL}
+AUTH_USER=${AUTH_USER:-savagecore}
+AUTH_PASSWORD=${AUTH_PASSWORD:-}
 EOF"
   ssh "$SEEDBOX" "chown savagecore:savagecore /etc/delugearr/config && chmod 600 /etc/delugearr/config"
 else
-  echo "  DELUGE_PASSWORD unset - leaving existing config in place"
+  echo "  no secrets provided - leaving existing config in place"
 fi
 
 echo "== Systemd unit"

@@ -60,6 +60,18 @@ def deluge_password():
     return env("DELUGE_PASSWORD", "")
 
 
+def auth_user():
+    return env("AUTH_USER", "savagecore")
+
+
+def auth_password():
+    return env("AUTH_PASSWORD", "")
+
+
+def storage_secret():
+    return env("STORAGE_SECRET", "")
+
+
 def base_path():
     return env("BASE_PATH", "/delugearr").rstrip("/")
 
