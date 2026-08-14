@@ -156,58 +156,128 @@ def exempt_rows(store):
     ]
 
 
-def add_filter_bar(table, all_rows):
+_UNSET = object()
+
+
+def matches_filters(row, filters):
+    name = filters["name"].lower()
+    if name and name not in (row.get("name") or "").lower():
+        return False
+    if filters["label"] != "All" and row.get("label") != filters["label"]:
+        return False
+    if filters["tracker"] != "All" and row.get("tracker") != filters["tracker"]:
+        return False
+    return filters["message"] == "All" or message_category(row.get("message")) == filters["message"]
+
+
+def detection_facets(rows):
+    return {
+        "labels": sorted({r.get("label") for r in rows if r.get("label")}),
+        "trackers": sorted({r.get("tracker") for r in rows if r.get("tracker")}),
+        "categories": sorted({message_category(r.get("message")) for r in rows if r.get("message")}),
+    }
+
+
+def add_filter_bar(table, facets, on_change):
     """Add a name input + label/tracker/message dropdowns above a table.
 
-    Returns a refresh callback that accepts new rows while preserving the
-    current filter selections.
+    ``on_change()`` is called whenever a filter changes so the table can
+    re-request its page. Dropdown options come from ``facets``.
     """
     filters = {"name": "", "label": "All", "tracker": "All", "message": "All"}
 
-    def apply():
-        rows = []
-        for row in all_rows:
-            if filters["name"] and filters["name"].lower() not in row.get("name", "").lower():
-                continue
-            if filters["label"] != "All" and row.get("label") != filters["label"]:
-                continue
-            if filters["tracker"] != "All" and row.get("tracker") != filters["tracker"]:
-                continue
-            if filters["message"] != "All" and message_category(row.get("message")) != filters["message"]:
-                continue
-            rows.append(row)
-        table.rows = rows
-        table.update()
-
     def set_filter(key, value):
         filters[key] = value
-        apply()
+        on_change()
 
     with table.add_slot("top-left"), ui.row().classes("items-center gap-2 flex-wrap"):
         ui.input("Name", on_change=lambda e: set_filter("name", e.value)).props(
             'outlined dense debounce="300"'
         ).classes("w-52")
-        labels = ["All"] + sorted({r.get("label") for r in all_rows if r.get("label")})
-        ui.select(labels, value="All", on_change=lambda e: set_filter("label", e.value)).props(
-            "outlined dense"
-        ).classes("w-36")
-        trackers = ["All"] + sorted({r.get("tracker") for r in all_rows if r.get("tracker")})
-        ui.select(trackers, value="All", on_change=lambda e: set_filter("tracker", e.value)).props(
-            "outlined dense"
-        ).classes("w-44")
-        categories = ["All"] + sorted(
-            {message_category(r.get("message")) for r in all_rows if r.get("message")}
+        ui.select(
+            ["All"] + facets["labels"], value="All", on_change=lambda e: set_filter("label", e.value)
+        ).props("outlined dense").classes("w-36")
+        ui.select(
+            ["All"] + facets["trackers"], value="All", on_change=lambda e: set_filter("tracker", e.value)
+        ).props("outlined dense").classes("w-44")
+        ui.select(
+            ["All"] + facets["categories"], value="All", on_change=lambda e: set_filter("message", e.value)
+        ).props("outlined dense").classes("w-52")
+
+    return filters
+
+
+def paged_table(columns, fetcher, page_size=25, row_key="id", facets=None, actions=None):
+    """Server-side-paginated table: only the visible page is sent to the client.
+
+    ``fetcher(filters, sort_by, descending, page, rows_per_page)`` returns
+    ``(rows, total)``. ``facets`` enables the filter bar; ``actions(table)`` may
+    add a ``body-cell-actions`` slot. Returns ``(table, load)`` where ``load``
+    re-fetches the current page using the current filters.
+    """
+    table = ui.table(
+        columns=columns,
+        rows=[],
+        row_key=row_key,
+        pagination={"rowsPerPage": page_size, "rowsNumber": 0, "page": 1},
+    ).classes("w-full")
+    current = {"page": 1, "rowsPerPage": page_size, "sortBy": None, "descending": False}
+    filters = {"name": "", "label": "All", "tracker": "All", "message": "All"}
+
+    def load(page=_UNSET, rows_per_page=_UNSET, sort_by=_UNSET, descending=_UNSET):
+        if page is not _UNSET:
+            current["page"] = page or 1
+        if rows_per_page is not _UNSET:
+            current["rowsPerPage"] = rows_per_page or page_size
+        if sort_by is not _UNSET:
+            current["sortBy"] = sort_by
+        if descending is not _UNSET:
+            current["descending"] = bool(descending)
+        rows, total = fetcher(
+            filters,
+            current["sortBy"],
+            current["descending"],
+            current["page"],
+            current["rowsPerPage"],
         )
-        ui.select(categories, value="All", on_change=lambda e: set_filter("message", e.value)).props(
-            "outlined dense"
-        ).classes("w-52")
+        table.rows = rows
+        table.pagination = {
+            "page": current["page"],
+            "rowsPerPage": current["rowsPerPage"],
+            "rowsNumber": total,
+            "sortBy": current["sortBy"],
+            "descending": current["descending"],
+        }
+        table.update()
 
-    def refresh(new_rows):
-        nonlocal all_rows
-        all_rows = new_rows
-        apply()
+    def on_request(e: events.GenericEventArguments):
+        pagination = (e.args or [{}])[0].get("pagination", {})
+        load(
+            page=pagination.get("page") or 1,
+            rows_per_page=pagination.get("rowsPerPage") or page_size,
+            sort_by=pagination.get("sortBy"),
+            descending=pagination.get("descending", False),
+        )
 
-    return refresh
+    table.on("request", on_request)
+    if facets:
+        add_filter_bar(table, facets, lambda: load(page=1))
+    if actions:
+        actions(table)
+    load()
+    return table, load
+
+
+def focus_refresh(handler):
+    """Refresh immediately when the tab regains focus (window focus or visibility change)."""
+    bridge = ui.element("div").classes("hidden")
+    bridge.on("window_focus", handler)
+    ui.run_javascript(
+        f"const _bridge = getHtmlElement({bridge.id});"
+        "const _fire = () => _bridge.dispatchEvent(new CustomEvent('window_focus', { bubbles: true }));"
+        "window.addEventListener('focus', _fire);"
+        "document.addEventListener('visibilitychange', () => { if (!document.hidden) _fire(); });"
+    )
 
 
 def _dashboard(store, scanner):
@@ -220,7 +290,7 @@ def _dashboard(store, scanner):
     else:
         banner("LIVE MODE - unregistered torrents will be removed", "bg-red-3 text-black")
 
-    state = {"table": None, "exempt_table": None, "labels": None, "refresh_rows": None}
+    state = {"table": None, "exempt_table": None, "labels": None, "load": None}
 
     def refresh_stats():
         current = store.get_settings()
@@ -244,7 +314,7 @@ def _dashboard(store, scanner):
             stats_label.text = ""
 
     def refresh_detections():
-        state["refresh_rows"](detections_rows(store))
+        state["load"]()
 
     def refresh_exempts():
         state["exempt_table"].rows = exempt_rows(store)
@@ -333,19 +403,31 @@ def _dashboard(store, scanner):
         {"name": "actions", "label": "", "field": "actions", "align": "center"},
     ]
     all_rows = detections_rows(store)
-    table = ui.table(columns=columns, rows=all_rows, row_key="hash", pagination=25).classes("w-full")
+    facets = detection_facets(all_rows)
+
+    def fetcher(filters, sort_by, descending, page, rows_per_page):
+        rows = [r for r in detections_rows(store) if matches_filters(r, filters)]
+        if sort_by:
+            rows.sort(key=lambda r: r.get(sort_by) or "", reverse=descending)
+        total = len(rows)
+        start = (page - 1) * rows_per_page
+        return rows[start : start + rows_per_page], total
+
+    def actions(table):
+        with table.add_slot("body-cell-actions"), table.cell("actions"):
+            ui.button(icon="block").props("size=sm flat").classes("mx-0.5").on(
+                "click", js_handler="() => emit(props.row, 'exempt')", handler=row_action
+            ).tooltip("Exempt (never touch this torrent)")
+            ui.button(icon="link_off").props("size=sm flat").classes("mx-0.5").on(
+                "click", js_handler="() => emit(props.row, 'remove_keep')", handler=row_action
+            ).tooltip("Remove torrent, keep files")
+            ui.button(icon="delete_forever").props("size=sm flat").classes("mx-0.5 text-negative").on(
+                "click", js_handler="() => emit(props.row, 'remove_data')", handler=row_action
+            ).tooltip("Remove torrent and delete files")
+
+    table, load = paged_table(columns, fetcher, page_size=25, row_key="hash", facets=facets, actions=actions)
     state["table"] = table
-    state["refresh_rows"] = add_filter_bar(table, all_rows)
-    with table.add_slot("body-cell-actions"), table.cell("actions"):
-        ui.button(icon="block").props("size=sm flat").classes("mx-0.5").on(
-            "click", js_handler="() => emit(props.row, 'exempt')", handler=row_action
-        ).tooltip("Exempt (never touch this torrent)")
-        ui.button(icon="link_off").props("size=sm flat").classes("mx-0.5").on(
-            "click", js_handler="() => emit(props.row, 'remove_keep')", handler=row_action
-        ).tooltip("Remove torrent, keep files")
-        ui.button(icon="delete_forever").props("size=sm flat").classes("mx-0.5 text-negative").on(
-            "click", js_handler="() => emit(props.row, 'remove_data')", handler=row_action
-        ).tooltip("Remove torrent and delete files")
+    state["load"] = load
 
     ui.label("Exempt torrents").classes("text-lg font-bold mt-8")
     exempt_table = ui.table(
@@ -365,38 +447,38 @@ def _dashboard(store, scanner):
             "click", js_handler="() => emit(props.row.hash)", handler=lambda e: unexempt(e.args)
         ).tooltip("Remove exemption")
 
-    last_seen = [None]
+    last_seen = [settings.get("data_version")]
 
     def tick():
         current = store.get_settings()
-        last_scan_at = current.get("last_scan_at")
-        if last_seen[0] != last_scan_at:
-            last_seen[0] = last_scan_at
+        version = current.get("data_version")
+        if version != last_seen[0]:
+            last_seen[0] = version
             refresh_all()
         elif scanner.scanning:
             refresh_stats()
 
+    focus_refresh(refresh_all)
     ui.timer(3.0, tick)
     refresh_stats()
 
 
+def _history_row(det):
+    return {
+        "id": det["id"],
+        "ts": fmt_ts(det["ts"]),
+        "action": ACTION_LABELS.get(det["action"], det["action"]),
+        "name": det["name"],
+        "label": det["label"],
+        "tracker": det["tracker"],
+        "message": det["message"],
+        "size": fmt_size(det["size"]),
+        "dry_run": "yes" if det["dry_run"] else "no",
+    }
+
+
 def _history(store):
     header("History")
-    rows = []
-    for det in store.get_detections(1000):
-        rows.append(
-            {
-                "id": det["id"],
-                "ts": fmt_ts(det["ts"]),
-                "action": ACTION_LABELS.get(det["action"], det["action"]),
-                "name": det["name"],
-                "label": det["label"],
-                "tracker": det["tracker"],
-                "message": det["message"],
-                "size": fmt_size(det["size"]),
-                "dry_run": "yes" if det["dry_run"] else "no",
-            }
-        )
     columns = [
         {"name": "ts", "label": "Time", "field": "ts", "sortable": True},
         {"name": "action", "label": "Action", "field": "action", "sortable": True},
@@ -407,8 +489,23 @@ def _history(store):
         {"name": "size", "label": "Size", "field": "size", "sortable": True},
         {"name": "dry_run", "label": "Dry run", "field": "dry_run", "sortable": True},
     ]
-    table = ui.table(columns=columns, rows=rows, row_key="id", pagination=25).classes("w-full")
-    add_filter_bar(table, rows)
+    facets = store.history_facets()
+
+    def fetcher(filters, sort_by, descending, page, rows_per_page):
+        rows, total = store.search_history(
+            name=filters["name"],
+            label=filters["label"],
+            tracker=filters["tracker"],
+            message=filters["message"],
+            sort_by=sort_by,
+            descending=descending,
+            page=page,
+            rows_per_page=rows_per_page,
+        )
+        return [_history_row(r) for r in rows], total
+
+    table, load = paged_table(columns, fetcher, page_size=25, row_key="id", facets=facets)
+    focus_refresh(load)
 
 
 def _settings(store, scanner=None):

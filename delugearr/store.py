@@ -23,6 +23,7 @@ DEFAULTS = {
     "last_scan_at": None,
     "last_scan_stats": None,
     "last_scan_error": None,
+    "data_version": 0,
 }
 
 EDITABLE_KEYS = {
@@ -106,6 +107,16 @@ class Store:
             finally:
                 con.close()
 
+    def _bump(self, con):
+        """Increment the data version so open dashboards notice the change."""
+        row = con.execute("SELECT value FROM settings WHERE key='data_version'").fetchone()
+        version = int(json.loads(row["value"])) if row else 0
+        con.execute(
+            "INSERT INTO settings(key,value) VALUES('data_version',?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (json.dumps(version + 1),),
+        )
+
     # ---- settings -------------------------------------------------------
     def get_settings(self):
         def fn(con):
@@ -130,6 +141,7 @@ class Store:
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (key, json.dumps(value)),
                 )
+            self._bump(con)
 
         self._run(fn)
 
@@ -183,10 +195,91 @@ class Store:
                     for rec in records
                 ],
             )
+            self._bump(con)
 
         if not records:
             return
         self._run(fn)
+
+    def search_history(
+        self,
+        name="",
+        label="All",
+        tracker="All",
+        message="All",
+        sort_by=None,
+        descending=False,
+        page=1,
+        rows_per_page=25,
+    ):
+        """Paged history rows for the server-side table, filtered in SQL.
+
+        ``message`` matches the message category (the segment before the first
+        ``:``), same as the UI's message dropdown.
+        """
+
+        def fn(con):
+            where, params = [], []
+            if name:
+                where.append("name LIKE ?")
+                params.append(f"%{name}%")
+            if label and label != "All":
+                where.append("label = ?")
+                params.append(label)
+            if tracker and tracker != "All":
+                where.append("tracker = ?")
+                params.append(tracker)
+            if message and message != "All":
+                where.append(
+                    "CASE WHEN instr(message,':') > 0 "
+                    "THEN substr(message,1,instr(message,':')-1) ELSE message END = ?"
+                )
+                params.append(message)
+            clause = f"WHERE {' AND '.join(where)}" if where else ""
+            total = con.execute(f"SELECT COUNT(*) AS n FROM detections {clause}", params).fetchone()["n"]
+            order = {
+                "ts": "ts",
+                "action": "action",
+                "name": "name",
+                "label": "label",
+                "tracker": "tracker",
+                "message": "message",
+                "size": "size",
+                "dry_run": "dry_run",
+            }.get(sort_by)
+            sql = f"SELECT * FROM detections {clause}"
+            sql += f" ORDER BY {order} {'DESC' if descending else 'ASC'}" if order else " ORDER BY ts DESC"
+            sql += " LIMIT ? OFFSET ?"
+            params += [rows_per_page, (page - 1) * rows_per_page]
+            return [dict(r) for r in con.execute(sql, params)], total
+
+        return self._run(fn)
+
+    def history_facets(self, limit=200):
+        """Distinct label/tracker/message-category values for the filter bar."""
+
+        def fn(con):
+            labels = [
+                r["label"]
+                for r in con.execute("SELECT DISTINCT label FROM detections WHERE label != '' ORDER BY label")
+            ]
+            trackers = [
+                r["tracker"]
+                for r in con.execute(
+                    "SELECT DISTINCT tracker FROM detections WHERE tracker != '' ORDER BY tracker"
+                )
+            ]
+            categories = [
+                r["c"]
+                for r in con.execute(
+                    "SELECT DISTINCT CASE WHEN instr(message,':') > 0 "
+                    "THEN substr(message,1,instr(message,':')-1) ELSE message END AS c "
+                    "FROM detections WHERE message != '' ORDER BY c"
+                )
+            ]
+            return {"labels": labels[:limit], "trackers": trackers[:limit], "categories": categories[:limit]}
+
+        return self._run(fn)
 
     def get_detections(self, limit=500, action=None, name=None):
         def fn(con):
@@ -271,12 +364,14 @@ class Store:
                 "INSERT OR REPLACE INTO exempt(torrent_hash,reason,added_ts) VALUES(?,?,?)",
                 (torrent_hash, reason, time.time()),
             )
+            self._bump(con)
 
         self._run(fn)
 
     def remove_exempt(self, torrent_hash):
         def fn(con):
             con.execute("DELETE FROM exempt WHERE torrent_hash=?", (torrent_hash,))
+            self._bump(con)
 
         self._run(fn)
 

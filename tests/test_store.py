@@ -78,3 +78,85 @@ def test_current_detections_excludes_removed_and_exempt(tmp_path):
     store.add_exempt("h2", "user")
     hashes = {d["torrent_hash"] for d in store.current_detections()}
     assert hashes == {"h3"}
+
+
+def test_data_version_bumps_on_mutation(tmp_path):
+    store = make_store(tmp_path)
+    version = store.get_settings()["data_version"]
+    store.log_detection("scan-1", torrent("h1"), "x", "unregistered", "would_remove_data", True)
+    assert store.get_settings()["data_version"] == version + 1
+    store.update_settings(interval_minutes=5)
+    assert store.get_settings()["data_version"] == version + 2
+    store.add_exempt("h2", "user")
+    assert store.get_settings()["data_version"] == version + 3
+    store.remove_exempt("h2")
+    assert store.get_settings()["data_version"] == version + 4
+
+
+def test_search_history_paginates_and_filters(tmp_path):
+    store = make_store(tmp_path)
+    for i in range(60):
+        store.log_detection(
+            "20260101-000000",
+            torrent(f"h{i}", name=f"Release.{i}", tracker_host="tracker.example.org"),
+            "Error: Unregistered torrent",
+            "unregistered",
+            "would_remove_data",
+            True,
+        )
+    store.log_detection(
+        "20260101-000000",
+        torrent("h-manual", name="Manual.Release", tracker_host="other.example.org"),
+        "manual removal",
+        "unregistered",
+        "manual_removed_data",
+        False,
+    )
+
+    page1, total = store.search_history(page=1, rows_per_page=25)
+    assert total == 61
+    assert len(page1) == 25
+
+    page3, _ = store.search_history(page=3, rows_per_page=25)
+    assert len(page3) == 11
+
+    rows, total = store.search_history(name="Manual", page=1, rows_per_page=25)
+    assert total == 1
+    assert rows[0]["torrent_hash"] == "h-manual"
+
+    rows, total = store.search_history(tracker="other.example.org", page=1, rows_per_page=25)
+    assert total == 1
+
+    rows, total = store.search_history(message="Error", page=1, rows_per_page=25)
+    assert total == 60
+
+    rows, total = store.search_history(message="manual removal", page=1, rows_per_page=25)
+    assert total == 1
+
+    rows, total = store.search_history(sort_by="name", descending=True, page=1, rows_per_page=10)
+    assert rows[0]["name"] == "Release.9"  # SQLite string sort, not numeric
+    assert total == 61
+
+
+def test_history_facets(tmp_path):
+    store = make_store(tmp_path)
+    store.log_detection(
+        "20260101-000000",
+        torrent("h1", tracker_host="tracker.example.org"),
+        "Error: Unregistered torrent",
+        "unregistered",
+        "would_remove_data",
+        True,
+    )
+    store.log_detection(
+        "20260101-000000",
+        torrent("h2", name="NoLabel", tracker_host="other.example.org"),
+        "Foo",
+        "unregistered",
+        "would_remove_data",
+        True,
+    )
+    facets = store.history_facets()
+    assert facets["labels"] == ["tv-sonarr"]
+    assert facets["trackers"] == ["other.example.org", "tracker.example.org"]
+    assert facets["categories"] == ["Error", "Foo"]
