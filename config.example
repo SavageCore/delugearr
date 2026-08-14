@@ -1,0 +1,13 @@
+# Copy to /etc/delugearr/config (chmod 600) or export as env vars.
+# This file is read by the systemd unit via EnvironmentFile=.
+DELUGE_URL=http://127.0.0.1:10376
+DELUGE_PASSWORD=CHANGE_ME
+PORT=11012
+BASE_PATH=/delugearr
+CONFIG_PATH=/etc/delugearr
+# 1 = detect + log only (default, safe). 0 = actually remove torrents.
+DRY_RUN=1
+SCAN_INTERVAL_MINUTES=30
+# JSON list of paths whose data must never be deleted (optional safety net;
+# unregistered torrents otherwise delete torrent + data, including cross-seeds).
+# KEEP_DATA_PATHS=["/home/savagecore/torrents/completed/cross-seed"]

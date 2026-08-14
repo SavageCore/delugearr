@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtualenvs
+venv/
+.venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# NiceGUI runtime
+.nicegui/
+
+# Local config / secrets
+/etc/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

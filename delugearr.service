@@ -1,0 +1,18 @@
+[Unit]
+Description=Delugearr - Deluge unregistered torrent cleanup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=savagecore
+Group=savagecore
+WorkingDirectory=/opt/delugearr
+EnvironmentFile=/etc/delugearr/config
+ExecStart=/opt/delugearr/venv/bin/python -m delugearr
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

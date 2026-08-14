@@ -1,0 +1,17 @@
+pre-commit:
+  parallel: true
+  commands:
+    ruff-check:
+      glob: "*.py"
+      run: |
+        ruff check {staged_files}
+    ruff-format:
+      glob: "*.py"
+      run: |
+        ruff format --check {staged_files}
+
+commit-msg:
+  commands:
+    conventional:
+      run: |
+        bash -c 'msg="$(head -1 "{1}")"; grep -qE "^[a-z]+(\([^)]*\))?!?: .+$" <<< "$msg" || { echo "commit message must follow conventional commits: type(scope): summary"; exit 1; }'
