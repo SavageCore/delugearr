@@ -41,7 +41,9 @@ async def test_history_renders(runtime):
 
 
 async def test_settings_renders(runtime):
-    store, _scanner = runtime
-    async with user_simulation(root=lambda: _settings(store)) as user:
+    store, scanner = runtime
+    async with user_simulation(root=lambda: _settings(store, scanner)) as user:
         await user.open("/")
         await user.should_see("Settings")
+        await user.should_see("API key")
+        await user.should_see("Deluge connection")

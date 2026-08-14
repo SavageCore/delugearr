@@ -1,6 +1,7 @@
 """SQLite persistence: settings, detection/audit history, exempt list."""
 
 import json
+import secrets
 import sqlite3
 import threading
 import time
@@ -15,6 +16,9 @@ DEFAULTS = {
     "excluded_labels": [],
     "keep_data_paths": [],
     "extra_ignore": [],
+    "deluge_url": "http://127.0.0.1:10376",
+    "deluge_password": "",
+    "api_key": None,
     "storage_secret": None,
     "last_scan_at": None,
     "last_scan_stats": None,
@@ -30,6 +34,8 @@ EDITABLE_KEYS = {
     "excluded_labels",
     "keep_data_paths",
     "extra_ignore",
+    "deluge_url",
+    "deluge_password",
 }
 
 _SCHEMA = """
@@ -75,6 +81,13 @@ class Store:
             for key, value in self._defaults.items():
                 if con.execute("SELECT 1 FROM settings WHERE key=?", (key,)).fetchone() is None:
                     con.execute("INSERT INTO settings(key,value) VALUES(?,?)", (key, json.dumps(value)))
+            row = con.execute("SELECT value FROM settings WHERE key='api_key'").fetchone()
+            if row is None or not row["value"] or row["value"] == json.dumps(None):
+                con.execute(
+                    "INSERT INTO settings(key,value) VALUES('api_key',?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (json.dumps(secrets.token_hex(32)),),
+                )
 
     def _connect(self):
         con = sqlite3.connect(self.path, timeout=30)
@@ -120,6 +133,17 @@ class Store:
 
         self._run(fn)
 
+    def api_key(self):
+        return self.get_settings().get("api_key")
+
+    def regenerate_api_key(self):
+        def fn(con):
+            key = secrets.token_hex(32)
+            con.execute("UPDATE settings SET value=? WHERE key='api_key'", (json.dumps(key),))
+            return key
+
+        return self._run(fn)
+
     # ---- detections -----------------------------------------------------
     def log_detection(self, run_id, torrent, message, status, action, dry_run):
         return self.log_detections(
@@ -164,10 +188,24 @@ class Store:
             return
         self._run(fn)
 
-    def get_detections(self, limit=500):
+    def get_detections(self, limit=500, action=None, name=None):
         def fn(con):
+            where = []
+            params = []
+            if action:
+                where.append("action = ?")
+                params.append(action)
+            if name:
+                where.append("name LIKE ?")
+                params.append(f"%{name}%")
+            clause = f"WHERE {' AND '.join(where)}" if where else ""
+            params.append(limit)
             return [
-                dict(r) for r in con.execute("SELECT * FROM detections ORDER BY ts DESC LIMIT ?", (limit,))
+                dict(r)
+                for r in con.execute(
+                    f"SELECT * FROM detections {clause} ORDER BY ts DESC LIMIT ?",
+                    params,
+                )
             ]
 
         return self._run(fn)
@@ -185,11 +223,46 @@ class Store:
         def fn(con):
             row = con.execute(
                 "SELECT run_id, MAX(ts) AS ts, COUNT(*) AS n "
-                "FROM detections GROUP BY run_id ORDER BY ts DESC LIMIT 1"
+                "FROM detections WHERE run_id NOT LIKE 'manual%' "
+                "GROUP BY run_id ORDER BY ts DESC LIMIT 1"
             ).fetchone()
             return dict(row) if row else None
 
         return self._run(fn)
+
+    def manual_removed_hashes(self):
+        """Hashes removed by hand (manual_* actions) since any scan run.
+
+        The dashboard hides these so a torrent the user removed does not linger
+        in the latest scan's snapshot; the audit rows still live in history.
+        """
+
+        def fn(con):
+            return {
+                r["torrent_hash"]
+                for r in con.execute(
+                    "SELECT DISTINCT torrent_hash FROM detections WHERE action LIKE 'manual%'"
+                )
+            }
+
+        return self._run(fn)
+
+    def current_detections(self):
+        """Latest scan's detections minus torrents already handled by hand.
+
+        Matches what the dashboard shows: the newest (non-manual) run, with
+        manually-removed and exempted hashes filtered out.
+        """
+        latest = self.latest_run()
+        if not latest:
+            return []
+        removed = self.manual_removed_hashes()
+        exempt = self.exempt_hashes()
+        return [
+            det
+            for det in self.get_run_detections(latest["run_id"])
+            if det["torrent_hash"] not in removed and det["torrent_hash"] not in exempt
+        ]
 
     # ---- exempt ---------------------------------------------------------
     def add_exempt(self, torrent_hash, reason=""):

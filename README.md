@@ -16,11 +16,25 @@ Built to mirror qbit_manage's `rem_unregistered` behavior for Deluge. The `delug
 
 Served at `https://seedbox.savagecore.uk/delugearr` (basic auth, no subdomain):
 
-- **Dashboard** — latest scan's unregistered torrents with sortable/filterable/paginated table, per-row Exempt / Remove·keep-data / Remove+data, exempt list, scan-now button.
+- **Dashboard** — latest scan's unregistered torrents with sortable/filterable/paginated table, per-row Exempt / Remove·keep-data / Remove+data, exempt list, scan-now button. Torrents you remove or exempt disappear from the list immediately (they still live in History).
 - **History** — audit log of detections/removals (also sortable/filterable).
-- **Settings** — dry-run toggle, scan interval, grace period, per-tracker removal cap, excluded labels, keep-data paths, extra ignore phrases.
+- **Settings** — dry-run toggle, scan interval, grace period, per-tracker removal cap, excluded labels, keep-data paths, extra ignore phrases, Deluge connection (URL/password + test button), and the API key (view, copy, regenerate).
 
-Ops API: `curl http://127.0.0.1:11012/delugearr/api/status`, manual scan `curl -X POST http://127.0.0.1:11012/delugearr/api/scan`.
+## API
+
+Every `/api` endpoint requires the API key, sent either as the `X-Api-Key` header or the `apikey` query parameter (the arr convention). The key is generated on first run and managed in **Settings → API** (regenerating it instantly invalidates the old key). `/api/health`, `/api/docs` and `/api/openapi.json` are unauthenticated.
+
+- Interactive spec UI: `https://seedbox.savagecore.uk/delugearr/api/docs`
+- Machine-readable spec (for the MCP server): `https://seedbox.savagecore.uk/delugearr/api/openapi.json`
+
+```bash
+KEY=your-api-key
+curl -H "X-Api-Key: $KEY" http://127.0.0.1:11012/delugearr/api/status
+curl -X POST -H "X-Api-Key: $KEY" http://127.0.0.1:11012/delugearr/api/scan
+curl http://127.0.0.1:11012/delugearr/api/health   # liveness, no key
+```
+
+Endpoints: `health`, `status`, `scan`, `detections` (latest run + filters), `history`, `torrents/{hash}/remove`, `torrents/{hash}/exempt`, `exempt` (GET/DELETE), `settings` (GET/PUT — the Deluge password and API key are never returned).
 
 ## Development
 
@@ -53,4 +67,5 @@ Tag a `v*` tag; the release workflow lints/tests and publishes a GitHub release 
 | `delugearr/scanner.py` | Scan cycle (fetch, detect, remove, audit) |
 | `delugearr/store.py` | SQLite settings / detections / exempt list |
 | `delugearr/ui.py` | NiceGUI pages |
-| `delugearr/app.py` | FastAPI + NiceGUI mount (`/delugearr`) + scheduler + ops API |
+| `delugearr/api.py` | API-key-protected REST API (OpenAPI spec) |
+| `delugearr/app.py` | FastAPI + NiceGUI mount (`/delugearr`) + scheduler |

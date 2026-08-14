@@ -62,6 +62,6 @@ ssh "$SEEDBOX" "cp ${REMOTE_DIR}/nginx-delugearr.conf /etc/nginx/apps/delugearr.
 
 echo "== Health check"
 sleep 3
-curl -fsS "http://127.0.0.1:${PORT}${BASE_PATH}/api/status" || true
+curl -fsS "http://127.0.0.1:${PORT}${BASE_PATH}/api/health" || true
 echo
 echo "== Done. UI: https://seedbox.savagecore.uk${BASE_PATH}"

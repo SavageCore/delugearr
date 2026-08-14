@@ -22,6 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import config
 from . import ui as ui_module
+from .api import build_router
 from .scanner import Scanner
 from .store import Store
 
@@ -82,28 +83,14 @@ def _storage_secret(store):
 
 
 def create_app(store, scanner):
-    fastapi_app = FastAPI(title="Delugearr")
-
-    @fastapi_app.get(config.base_path() + "/api/status")
-    def api_status():
-        settings = store.get_settings()
-        return {
-            "dry_run": bool(settings.get("dry_run", True)),
-            "interval_minutes": settings.get("interval_minutes"),
-            "filter_completed": bool(settings.get("filter_completed", True)),
-            "scanning": scanner.scanning,
-            "deluge_connected": scanner.deluge_ok,
-            "last_scan_at": settings.get("last_scan_at"),
-            "last_scan_stats": settings.get("last_scan_stats"),
-            "last_scan_error": settings.get("last_scan_error"),
-        }
-
-    @fastapi_app.post(config.base_path() + "/api/scan")
-    def api_scan():
-        if scanner.scanning:
-            return {"started": False, "reason": "already scanning"}
-        threading.Thread(target=scanner.scan, daemon=True).start()
-        return {"started": True}
+    base = config.base_path()
+    fastapi_app = FastAPI(
+        title="Delugearr",
+        docs_url=base + "/api/docs",
+        openapi_url=base + "/api/openapi.json",
+        redoc_url=None,
+    )
+    fastapi_app.include_router(build_router(store, scanner))
 
     ui_module.build_pages(store, scanner)
 

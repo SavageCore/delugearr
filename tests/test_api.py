@@ -1,0 +1,210 @@
+"""API tests: key auth, redaction, and the endpoint surface (no Deluge)."""
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from delugearr import config
+from delugearr.api import build_router
+from delugearr.store import Store
+
+
+class StubScanner:
+    scanning = False
+    deluge_ok = True
+
+    def scan(self, dry_run=None, run_id=None):
+        return {}
+
+    def manual_remove(self, torrent_hash, remove_data=True):
+        return {
+            "torrent_hash": torrent_hash,
+            "name": "Some.Release.2026",
+            "action": "manual_removed_data" if remove_data else "manual_removed_only",
+            "remove_data": remove_data,
+        }
+
+
+@pytest.fixture
+def api(tmp_path, monkeypatch):
+    monkeypatch.setenv("CONFIG_PATH", str(tmp_path))
+    monkeypatch.setenv("BASE_PATH", "/delugearr")
+    store = Store(config.db_path(), defaults=config.store_defaults())
+    scanner = StubScanner()
+    app = FastAPI()
+    app.include_router(build_router(store, scanner))
+    return TestClient(app), store
+
+
+def torrent(hash, name="Some.Release.2026", tracker_host="tracker.example.org"):
+    return {
+        "hash": hash,
+        "name": name,
+        "label": "tv-sonarr",
+        "tracker_host": tracker_host,
+        "total_size": 123,
+    }
+
+
+def test_health_is_open(api):
+    client, _store = api
+    resp = client.get("/delugearr/api/health")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+
+
+def test_status_requires_key(api):
+    client, _store = api
+    assert client.get("/delugearr/api/status").status_code == 401
+    resp = client.get("/delugearr/api/status", headers={"X-Api-Key": "wrong"})
+    assert resp.status_code == 401
+
+
+def test_status_accepts_header_and_query(api):
+    client, store = api
+    key = store.api_key()
+    assert client.get("/delugearr/api/status", headers={"X-Api-Key": key}).status_code == 200
+    assert client.get(f"/delugearr/api/status?apikey={key}").status_code == 200
+
+
+def test_detections_returns_scan_run(api):
+    client, store = api
+    store.log_detection(
+        "20260101-000000",
+        torrent("h1"),
+        "Error: Unregistered torrent",
+        "unregistered",
+        "would_remove_data",
+        True,
+    )
+    store.log_detection(
+        "manual-20260101-010000",
+        torrent("h2"),
+        "manual removal",
+        "unregistered",
+        "manual_removed_data",
+        False,
+    )
+    key = store.api_key()
+    resp = client.get("/delugearr/api/detections", headers={"X-Api-Key": key})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["run_id"] == "20260101-000000"
+    assert len(body["rows"]) == 1
+    assert body["rows"][0]["torrent_hash"] == "h1"
+
+
+def test_history_lists_everything(api):
+    client, store = api
+    store.log_detection(
+        "20260101-000000",
+        torrent("h1"),
+        "x",
+        "unregistered",
+        "would_remove_data",
+        True,
+    )
+    store.log_detection(
+        "manual-20260101-010000",
+        torrent("h2"),
+        "manual removal",
+        "unregistered",
+        "manual_removed_data",
+        False,
+    )
+    key = store.api_key()
+    body = client.get("/delugearr/api/history", headers={"X-Api-Key": key}).json()
+    assert len(body["rows"]) == 2
+
+
+def test_history_action_filter_finds_rows_beyond_default_limit(api):
+    """Regression: action filtering must run in SQL before LIMIT, so a rare
+    action whose rows fall outside the newest N still shows up."""
+    client, store = api
+    for i in range(150):
+        store.log_detection(
+            "20260101-000000",
+            torrent(f"h{i}"),
+            "x",
+            "unregistered",
+            "would_remove_data",
+            True,
+        )
+    store.log_detection(
+        "manual-20260101-010000",
+        torrent("h-manual"),
+        "manual removal",
+        "unregistered",
+        "manual_removed_data",
+        False,
+    )
+    key = store.api_key()
+    body = client.get("/delugearr/api/history?action=manual_removed_data", headers={"X-Api-Key": key}).json()
+    assert len(body["rows"]) == 1
+    assert body["rows"][0]["torrent_hash"] == "h-manual"
+
+
+def test_history_name_filter_finds_rows_beyond_default_limit(api):
+    client, store = api
+    for i in range(150):
+        store.log_detection(
+            "20260101-000000",
+            torrent(f"h{i}", name=f"Common.Release.{i}"),
+            "x",
+            "unregistered",
+            "would_remove_data",
+            True,
+        )
+    store.log_detection(
+        "manual-20260101-010000",
+        torrent("h-needle", name="Rare.Album.2026"),
+        "manual removal",
+        "unregistered",
+        "manual_removed_data",
+        False,
+    )
+    key = store.api_key()
+    body = client.get("/delugearr/api/history?name=Rare.Album", headers={"X-Api-Key": key}).json()
+    assert len(body["rows"]) == 1
+    assert body["rows"][0]["torrent_hash"] == "h-needle"
+
+
+def test_settings_get_redacts_secrets(api):
+    client, store = api
+    store.update_settings(deluge_password="hunter2")
+    body = client.get("/delugearr/api/settings", headers={"X-Api-Key": store.api_key()}).json()
+    assert body["deluge_url"]
+    assert "deluge_password" not in body
+    assert "api_key" not in body
+
+
+def test_settings_put_updates(api):
+    client, store = api
+    resp = client.put(
+        "/delugearr/api/settings",
+        headers={"X-Api-Key": store.api_key()},
+        json={"interval_minutes": 15, "deluge_password": "newpass"},
+    )
+    assert resp.status_code == 200
+    assert "deluge_password" not in resp.json()
+    settings = store.get_settings()
+    assert settings["interval_minutes"] == 15
+    assert settings["deluge_password"] == "newpass"
+
+
+def test_remove_and_exempt_roundtrip(api):
+    client, store = api
+    key = store.api_key()
+    headers = {"X-Api-Key": key}
+
+    resp = client.post("/delugearr/api/torrents/h1/remove", headers=headers, json={"remove_data": False})
+    assert resp.status_code == 200
+    assert resp.json()["action"] == "manual_removed_only"
+
+    resp = client.post("/delugearr/api/torrents/h2/exempt", headers=headers, json={"reason": "keep"})
+    assert resp.status_code == 200
+    assert client.get("/delugearr/api/exempt", headers=headers).json()["rows"][0]["torrent_hash"] == "h2"
+
+    resp = client.delete("/delugearr/api/exempt/h2", headers=headers)
+    assert resp.status_code == 200
+    assert client.get("/delugearr/api/exempt", headers=headers).json()["rows"] == []

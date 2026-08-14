@@ -4,9 +4,10 @@ import logging
 import threading
 from datetime import datetime
 
-from nicegui import app, events, ui
+from nicegui import app, events, run, ui
 
 from . import config
+from .deluge_client import DelugeClient
 
 log = logging.getLogger("delugearr-ui")
 
@@ -21,60 +22,6 @@ ACTION_LABELS = {
 }
 
 VALUE_TO_THEME = {None: "system", True: "light", False: "dark"}
-
-# Catppuccin Latte (light) + Mocha (dark) overrides on top of Quasar defaults.
-CATPPUCCIN_CSS = """
-body.body--light { background-color: #eff1f5; color: #4c4f69; }
-body.body--dark { background-color: #1e1e2e; color: #cdd6f4; }
-
-.body--light {
-  --q-primary: #1e66f5;
-  --q-secondary: #7287fd;
-  --q-accent: #209fb5;
-  --q-positive: #40a02b;
-  --q-negative: #d20f39;
-  --q-warning: #df8e1d;
-  --q-info: #209fb5;
-}
-.body--dark {
-  --q-primary: #89b4fa;
-  --q-secondary: #b4befe;
-  --q-accent: #74c7ec;
-  --q-positive: #a6e3a1;
-  --q-negative: #f38ba8;
-  --q-warning: #f9e2af;
-  --q-info: #74c7ec;
-}
-
-.body--light .q-card,
-.body--light .q-dialog .q-card,
-.body--light .q-menu,
-.body--light .q-notification,
-.body--light .q-toolbar,
-.body--light .q-drawer {
-  background-color: #e6e9ef;
-  color: #4c4f69;
-}
-.body--dark .q-card,
-.body--dark .q-dialog .q-card,
-.body--dark .q-menu,
-.body--dark .q-notification,
-.body--dark .q-toolbar,
-.body--dark .q-drawer {
-  background-color: #181825;
-  color: #cdd6f4;
-}
-
-.body--light .q-table { background-color: #eff1f5; color: #4c4f69; }
-.body--light .q-table thead, .body--light .q-table th { color: #6c6f85; }
-.body--light .q-table tbody td { border-color: #ccd0da; }
-.body--dark .q-table { background-color: #1e1e2e; color: #cdd6f4; }
-.body--dark .q-table thead, .body--dark .q-table th { color: #a6adc8; }
-.body--dark .q-table tbody td { border-color: #313244; }
-
-.body--light .q-field--outlined .q-field__control:before { border-color: #bcc0cc; }
-.body--dark .q-field--outlined .q-field__control:before { border-color: #45475a; }
-"""
 
 
 def message_category(message):
@@ -104,7 +51,6 @@ def fmt_ts(value):
 
 
 def setup_theme():
-    ui.add_css(CATPPUCCIN_CSS)
     dark = ui.dark_mode()
     theme = app.storage.user.get("theme")
     dark.set_value(theme if theme in (True, False) else None)
@@ -146,7 +92,7 @@ def banner(text, color):
 def header(current):
     dark = setup_theme()
     with (
-        ui.header().style("background-color:#11111b").classes("items-center px-4 py-2"),
+        ui.header(elevated=True).classes("items-center px-4 py-2"),
         ui.row().classes("items-center justify-between w-full gap-4"),
     ):
         ui.label("Delugearr").classes("text-xl font-bold")
@@ -180,22 +126,26 @@ def confirm_dialog(title, message, on_confirm):
 
 
 def detections_rows(store):
+    """Latest scan's unregistered torrents, minus ones already handled by hand.
+
+    Manually-removed torrents are gone from Deluge (their audit rows live in
+    history), and exempted ones are deliberately left alone, so neither should
+    clutter the dashboard's actionable list.
+    """
     rows = []
-    latest = store.latest_run()
-    if latest:
-        for det in store.get_run_detections(latest["run_id"]):
-            rows.append(
-                {
-                    "hash": det["torrent_hash"],
-                    "name": det["name"],
-                    "label": det["label"],
-                    "tracker": det["tracker"],
-                    "message": det["message"],
-                    "size": fmt_size(det["size"]),
-                    "action": ACTION_LABELS.get(det["action"], det["action"]),
-                    "ts": fmt_ts(det["ts"]),
-                }
-            )
+    for det in store.current_detections():
+        rows.append(
+            {
+                "hash": det["torrent_hash"],
+                "name": det["name"],
+                "label": det["label"],
+                "tracker": det["tracker"],
+                "message": det["message"],
+                "size": fmt_size(det["size"]),
+                "action": ACTION_LABELS.get(det["action"], det["action"]),
+                "ts": fmt_ts(det["ts"]),
+            }
+        )
     return rows
 
 
@@ -461,63 +411,139 @@ def _history(store):
     add_filter_bar(table, rows)
 
 
-def _settings(store):
+def _settings(store, scanner=None):
     header("Settings")
     current = store.get_settings()
 
-    dry_run = ui.switch(
-        "Dry run (detect and log only, never remove)", value=bool(current.get("dry_run", True))
-    )
-    filter_completed = ui.switch(
-        "Only process completed torrents (skip active downloads)",
-        value=bool(current.get("filter_completed", True)),
-    )
-    interval = ui.number(
-        "Scan interval (minutes)", value=float(current.get("interval_minutes", 30)), min=1, step=1
-    )
-    grace = ui.number(
-        "Grace period (minutes since added, 0 = off)",
-        value=float(current.get("grace_minutes", 0)),
-        min=0,
-        step=1,
-    )
-    max_per = ui.number(
-        "Max removals per tracker per scan (0 = unlimited)",
-        value=float(current.get("max_torrents_per_tracker", 0)),
-        min=0,
-        step=1,
-    )
-    excluded = ui.input(
-        "Excluded labels (comma-separated)", value=", ".join(current.get("excluded_labels") or [])
-    )
-    keep_paths = ui.input(
-        "Keep-data paths - never delete files under these (comma-separated)",
-        value=", ".join(current.get("keep_data_paths") or []),
-    )
-    extra_ignore = ui.input(
-        "Extra ignore phrases (comma-separated)", value=", ".join(current.get("extra_ignore") or [])
-    )
+    with ui.card().classes("w-full max-w-3xl"):
+        ui.label("Cleanup behaviour").classes("text-lg font-bold")
 
-    for field in (dry_run, filter_completed, interval, grace, max_per, excluded, keep_paths, extra_ignore):
-        field.classes("w-full max-w-2xl")
-
-    def split_csv(value):
-        return [item.strip() for item in value.split(",") if item.strip()]
-
-    def save():
-        store.update_settings(
-            dry_run=bool(dry_run.value),
-            filter_completed=bool(filter_completed.value),
-            interval_minutes=max(1, int(interval.value)),
-            grace_minutes=max(0, int(grace.value)),
-            max_torrents_per_tracker=max(0, int(max_per.value)),
-            excluded_labels=split_csv(excluded.value),
-            keep_data_paths=split_csv(keep_paths.value),
-            extra_ignore=split_csv(extra_ignore.value),
+        dry_run = ui.switch(
+            "Dry run (detect and log only, never remove)", value=bool(current.get("dry_run", True))
         )
-        ui.notify("Settings saved", type="positive")
+        filter_completed = ui.switch(
+            "Only process completed torrents (skip active downloads)",
+            value=bool(current.get("filter_completed", True)),
+        )
+        interval = ui.number(
+            "Scan interval (minutes)", value=float(current.get("interval_minutes", 30)), min=1, step=1
+        )
+        grace = ui.number(
+            "Grace period (minutes since added, 0 = off)",
+            value=float(current.get("grace_minutes", 0)),
+            min=0,
+            step=1,
+        )
+        max_per = ui.number(
+            "Max removals per tracker per scan (0 = unlimited)",
+            value=float(current.get("max_torrents_per_tracker", 0)),
+            min=0,
+            step=1,
+        )
+        excluded = ui.input(
+            "Excluded labels (comma-separated)", value=", ".join(current.get("excluded_labels") or [])
+        )
+        keep_paths = ui.input(
+            "Keep-data paths - never delete files under these (comma-separated)",
+            value=", ".join(current.get("keep_data_paths") or []),
+        )
+        extra_ignore = ui.input(
+            "Extra ignore phrases (comma-separated)", value=", ".join(current.get("extra_ignore") or [])
+        )
 
-    ui.button("Save settings", icon="save", on_click=save)
+        for field in (
+            dry_run,
+            filter_completed,
+            interval,
+            grace,
+            max_per,
+            excluded,
+            keep_paths,
+            extra_ignore,
+        ):
+            field.classes("w-full max-w-2xl")
+
+        def split_csv(value):
+            return [item.strip() for item in value.split(",") if item.strip()]
+
+        def save():
+            store.update_settings(
+                dry_run=bool(dry_run.value),
+                filter_completed=bool(filter_completed.value),
+                interval_minutes=max(1, int(interval.value)),
+                grace_minutes=max(0, int(grace.value)),
+                max_torrents_per_tracker=max(0, int(max_per.value)),
+                excluded_labels=split_csv(excluded.value),
+                keep_data_paths=split_csv(keep_paths.value),
+                extra_ignore=split_csv(extra_ignore.value),
+            )
+            ui.notify("Settings saved", type="positive")
+
+        ui.button("Save settings", icon="save", on_click=save)
+
+    with ui.card().classes("w-full max-w-3xl mt-4"):
+        ui.label("Deluge connection").classes("text-lg font-bold")
+        deluge_url = ui.input("Deluge Web URL", value=current.get("deluge_url") or "").classes(
+            "w-full max-w-2xl"
+        )
+        deluge_password = ui.input(
+            "Deluge Web password",
+            value=current.get("deluge_password") or "",
+            password=True,
+            password_toggle_button=True,
+        ).classes("w-full max-w-2xl")
+
+        def save_connection():
+            store.update_settings(
+                deluge_url=(deluge_url.value or "").strip(), deluge_password=deluge_password.value
+            )
+            ui.notify("Deluge connection saved", type="positive")
+
+        async def test_connection():
+            test_label.text = "Testing..."
+            test_label.classes(replace="text-grey")
+            ok = await run.io_bound(DelugeClient(deluge_url.value, deluge_password.value).connected)
+            test_label.text = "Connection: OK" if ok else "Connection: failed"
+            test_label.classes(replace="text-positive" if ok else "text-negative")
+
+        with ui.row().classes("items-center gap-4"):
+            ui.button("Save connection", icon="save", on_click=save_connection)
+            ui.button("Test connection", icon="wifi_tethering", on_click=test_connection)
+            test_label = ui.label().classes("text-grey")
+
+        if scanner is not None:
+            connected = scanner.deluge_ok
+            state = {True: "connected", False: "unreachable", None: "not yet probed"}.get(connected)
+            color = {True: "text-positive", False: "text-negative", None: "text-grey"}[connected]
+            ui.label(f"Last known status: {state}").classes(f"text-sm {color}")
+
+    with ui.card().classes("w-full max-w-3xl mt-4"):
+        ui.label("API").classes("text-lg font-bold")
+        ui.label(
+            "Use this key with the X-Api-Key header (or ?apikey= query) on every /api request."
+            " See /delugearr/api/docs for the spec."
+        ).classes("text-sm text-grey")
+        api_key = store.api_key()
+        with ui.row().classes("items-center gap-2 w-full"):
+            key_input = ui.input("API key", value=api_key).props("readonly").classes("flex-1")
+            ui.button(icon="content_copy").props("flat").tooltip("Copy API key").on(
+                "click",
+                lambda: (ui.clipboard.write(key_input.value), ui.notify("API key copied", type="positive")),
+            )
+        ui.button(
+            "Regenerate key",
+            icon="refresh",
+            on_click=lambda: confirm_dialog(
+                "Regenerate API key",
+                "The current key will stop working immediately. Continue?",
+                do_regenerate,
+            ),
+        )
+
+    def do_regenerate():
+        key_input.value = store.regenerate_api_key()
+        key_input.update()
+        ui.notify("API key regenerated", type="positive")
 
 
 def _login(redirect_to: str = "/"):
@@ -565,4 +591,4 @@ def build_pages(store, scanner):
 
     @ui.page("/settings")
     def settings_page():
-        _settings(store)
+        _settings(store, scanner)

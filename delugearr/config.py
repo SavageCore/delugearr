@@ -98,4 +98,6 @@ def store_defaults():
         "dry_run": default_dry_run(),
         "interval_minutes": default_interval_minutes(),
         "keep_data_paths": default_keep_data_paths(),
+        "deluge_url": deluge_url(),
+        "deluge_password": deluge_password(),
     }

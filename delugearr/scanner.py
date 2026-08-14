@@ -43,12 +43,29 @@ def _path_under(path, parent):
 
 class Scanner:
     def __init__(self, client=None, store=None):
-        self.client = client or DelugeClient(config.deluge_url(), config.deluge_password())
         self.store = store or Store(config.db_path(), defaults=config.store_defaults())
+        self._client_owned = client is None
+        self._cfg_url = None
+        self._cfg_password = None
+        self.client = client or DelugeClient(config.deluge_url(), config.deluge_password())
+        if self._client_owned:
+            self._sync_client()
         self._lock = threading.Lock()
         self.scanning = False
         self.deluge_ok = None
         self.last_error = None
+
+    def _sync_client(self):
+        """Recreate the Deluge client when the stored connection settings changed."""
+        if not self._client_owned:
+            return
+        settings = self.store.get_settings()
+        url = (settings.get("deluge_url") or config.deluge_url()).strip() or config.deluge_url()
+        password = settings.get("deluge_password") or ""
+        if url != self._cfg_url or password != self._cfg_password:
+            self.client = DelugeClient(url, password)
+            self._cfg_url = url
+            self._cfg_password = password
 
     def scan(self, dry_run=None, run_id=None):
         with self._lock:
@@ -59,6 +76,7 @@ class Scanner:
                 self.scanning = False
 
     def _scan_locked(self, dry_run=None, run_id=None):
+        self._sync_client()
         start = time.time()
         settings = self.store.get_settings()
         if dry_run is None:
@@ -191,6 +209,7 @@ class Scanner:
 
     def manual_remove(self, torrent_hash, remove_data=True):
         """Explicit user-initiated removal of a single torrent."""
+        self._sync_client()
         torrents = self.client.get_torrents()
         torrent = torrents.get(torrent_hash)
         if not isinstance(torrent, dict):
@@ -198,10 +217,16 @@ class Scanner:
         self.client.remove_torrents([torrent_hash], remove_data=remove_data)
         action = "manual_removed_data" if remove_data else "manual_removed_only"
         self.store.log_detection(
-            run_id="manual",
+            run_id=f"manual-{time.strftime('%Y%m%d-%H%M%S')}",
             torrent=torrent,
             message=torrent.get("tracker_status") or "manual removal",
             status="unregistered",
             action=action,
             dry_run=False,
         )
+        return {
+            "torrent_hash": torrent_hash,
+            "name": torrent.get("name", ""),
+            "action": action,
+            "remove_data": remove_data,
+        }
