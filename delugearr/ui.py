@@ -1,10 +1,10 @@
-"""Delugearr UI pages (NiceGUI)."""
+"""Delugearr UI pages (NiceGUI): login, dashboard, history, settings."""
 
 import logging
 import threading
 from datetime import datetime
 
-from nicegui import events, ui
+from nicegui import app, events, ui
 
 from . import config
 
@@ -19,6 +19,66 @@ ACTION_LABELS = {
     "manual_removed_only": "Manually removed (kept data)",
     "error": "Failed",
 }
+
+VALUE_TO_THEME = {None: "system", True: "light", False: "dark"}
+
+# Catppuccin Latte (light) + Mocha (dark) overrides on top of Quasar defaults.
+CATPPUCCIN_CSS = """
+body.body--light { background-color: #eff1f5; color: #4c4f69; }
+body.body--dark { background-color: #1e1e2e; color: #cdd6f4; }
+
+.body--light {
+  --q-primary: #1e66f5;
+  --q-secondary: #7287fd;
+  --q-accent: #209fb5;
+  --q-positive: #40a02b;
+  --q-negative: #d20f39;
+  --q-warning: #df8e1d;
+  --q-info: #209fb5;
+}
+.body--dark {
+  --q-primary: #89b4fa;
+  --q-secondary: #b4befe;
+  --q-accent: #74c7ec;
+  --q-positive: #a6e3a1;
+  --q-negative: #f38ba8;
+  --q-warning: #f9e2af;
+  --q-info: #74c7ec;
+}
+
+.body--light .q-card,
+.body--light .q-dialog .q-card,
+.body--light .q-menu,
+.body--light .q-notification,
+.body--light .q-toolbar,
+.body--light .q-drawer {
+  background-color: #e6e9ef;
+  color: #4c4f69;
+}
+.body--dark .q-card,
+.body--dark .q-dialog .q-card,
+.body--dark .q-menu,
+.body--dark .q-notification,
+.body--dark .q-toolbar,
+.body--dark .q-drawer {
+  background-color: #181825;
+  color: #cdd6f4;
+}
+
+.body--light .q-table { background-color: #eff1f5; color: #4c4f69; }
+.body--light .q-table thead, .body--light .q-table th { color: #6c6f85; }
+.body--light .q-table tbody td { border-color: #ccd0da; }
+.body--dark .q-table { background-color: #1e1e2e; color: #cdd6f4; }
+.body--dark .q-table thead, .body--dark .q-table th { color: #a6adc8; }
+.body--dark .q-table tbody td { border-color: #313244; }
+
+.body--light .q-field--outlined .q-field__control:before { border-color: #bcc0cc; }
+.body--dark .q-field--outlined .q-field__control:before { border-color: #45475a; }
+"""
+
+
+def message_category(message):
+    return (message or "").split(":")[0].strip()
 
 
 def fmt_size(value):
@@ -43,19 +103,80 @@ def fmt_ts(value):
         return ""
 
 
-def header(current):
-    base = config.base_path()
-    pages = [
-        ("Dashboard", base + "/"),
-        ("History", base + "/history"),
-        ("Settings", base + "/settings"),
+def setup_theme():
+    ui.add_css(CATPPUCCIN_CSS)
+    dark = ui.dark_mode()
+    theme = app.storage.user.get("theme")
+    dark.set_value(theme if theme in (True, False) else None)
+    return dark
+
+
+def theme_icon(value):
+    return {"system": "brightness_auto", "light": "light_mode", "dark": "dark_mode"}[
+        VALUE_TO_THEME.get(value, "system")
     ]
-    with ui.header().classes("items-center px-4 py-2"), ui.row().classes("items-center gap-6"):
+
+
+def theme_label(value):
+    return {"system": "Theme: system", "light": "Theme: light", "dark": "Theme: dark"}[
+        VALUE_TO_THEME.get(value, "system")
+    ]
+
+
+def theme_cycle_button(dark):
+    order = [None, True, False]
+    button = ui.button(icon=theme_icon(dark.value)).props("flat round dense").classes("text-white")
+    button.tooltip(theme_label(dark.value))
+
+    def cycle():
+        index = order.index(dark.value) if dark.value in order else 0
+        dark.set_value(order[(index + 1) % 3])
+        app.storage.user["theme"] = dark.value
+        button.props(f"icon={theme_icon(dark.value)}")
+        button.tooltip(theme_label(dark.value))
+
+    button.on("click", cycle)
+    return button
+
+
+def banner(text, color):
+    ui.label(text).classes(f"w-full text-center font-bold py-2 px-4 {color}")
+
+
+def header(current):
+    dark = setup_theme()
+    with (
+        ui.header().style("background-color:#11111b").classes("items-center px-4 py-2"),
+        ui.row().classes("items-center justify-between w-full gap-4"),
+    ):
         ui.label("Delugearr").classes("text-xl font-bold")
-        with ui.row().classes("gap-4"):
-            for name, url in pages:
-                classes = "text-white font-bold" if name == current else "text-white/60"
-                ui.link(name, url).classes(classes)
+        with ui.row().classes("items-center gap-1"):
+            for name, path in (("Dashboard", "/"), ("History", "/history"), ("Settings", "/settings")):
+                active = "bg-white/15" if name == current else "hover:bg-white/10"
+                ui.link(name, path).classes(
+                    f"px-3 py-1.5 rounded-lg font-semibold no-underline text-white {active}"
+                )
+        with ui.row().classes("items-center gap-2"):
+            theme_cycle_button(dark)
+            ui.button(icon="logout").props("flat round dense").classes("text-white").on(
+                "click", logout
+            ).tooltip("Log out")
+
+
+def logout():
+    app.storage.user.clear()
+    ui.navigate.to("/login")
+
+
+def confirm_dialog(title, message, on_confirm):
+    dialog = ui.dialog()
+    with dialog, ui.card():
+        ui.label(title).classes("text-lg font-bold")
+        ui.label(message)
+        with ui.row().classes("gap-2 pt-2"):
+            ui.button("Cancel", on_click=dialog.close)
+            ui.button("Confirm", on_click=lambda: (on_confirm(), dialog.close())).props("color=negative")
+    dialog.open()
 
 
 def detections_rows(store):
@@ -85,19 +206,58 @@ def exempt_rows(store):
     ]
 
 
-def confirm_dialog(title, message, on_confirm):
-    dialog = ui.dialog()
-    with dialog, ui.card():
-        ui.label(title).classes("text-lg font-bold")
-        ui.label(message)
-        with ui.row().classes("gap-2 pt-2"):
-            ui.button("Cancel", on_click=dialog.close)
-            ui.button("Confirm", on_click=lambda: (on_confirm(), dialog.close())).props("color=negative")
-    dialog.open()
+def add_filter_bar(table, all_rows):
+    """Add a name input + label/tracker/message dropdowns above a table.
 
+    Returns a refresh callback that accepts new rows while preserving the
+    current filter selections.
+    """
+    filters = {"name": "", "label": "All", "tracker": "All", "message": "All"}
 
-def banner(text, color):
-    ui.label(text).classes(f"w-full text-center font-bold py-2 px-4 {color}")
+    def apply():
+        rows = []
+        for row in all_rows:
+            if filters["name"] and filters["name"].lower() not in row.get("name", "").lower():
+                continue
+            if filters["label"] != "All" and row.get("label") != filters["label"]:
+                continue
+            if filters["tracker"] != "All" and row.get("tracker") != filters["tracker"]:
+                continue
+            if filters["message"] != "All" and message_category(row.get("message")) != filters["message"]:
+                continue
+            rows.append(row)
+        table.rows = rows
+        table.update()
+
+    def set_filter(key, value):
+        filters[key] = value
+        apply()
+
+    with table.add_slot("top-left"), ui.row().classes("items-center gap-2 flex-wrap"):
+        ui.input("Name", on_change=lambda e: set_filter("name", e.value)).props(
+            'outlined dense debounce="300"'
+        ).classes("w-52")
+        labels = ["All"] + sorted({r.get("label") for r in all_rows if r.get("label")})
+        ui.select(labels, value="All", on_change=lambda e: set_filter("label", e.value)).props(
+            "outlined dense"
+        ).classes("w-36")
+        trackers = ["All"] + sorted({r.get("tracker") for r in all_rows if r.get("tracker")})
+        ui.select(trackers, value="All", on_change=lambda e: set_filter("tracker", e.value)).props(
+            "outlined dense"
+        ).classes("w-44")
+        categories = ["All"] + sorted(
+            {message_category(r.get("message")) for r in all_rows if r.get("message")}
+        )
+        ui.select(categories, value="All", on_change=lambda e: set_filter("message", e.value)).props(
+            "outlined dense"
+        ).classes("w-52")
+
+    def refresh(new_rows):
+        nonlocal all_rows
+        all_rows = new_rows
+        apply()
+
+    return refresh
 
 
 def _dashboard(store, scanner):
@@ -110,7 +270,7 @@ def _dashboard(store, scanner):
     else:
         banner("LIVE MODE - unregistered torrents will be removed", "bg-red-3 text-black")
 
-    state = {"table": None, "exempt_table": None, "labels": None}
+    state = {"table": None, "exempt_table": None, "labels": None, "refresh_rows": None}
 
     def refresh_stats():
         current = store.get_settings()
@@ -134,8 +294,7 @@ def _dashboard(store, scanner):
             stats_label.text = ""
 
     def refresh_detections():
-        state["table"].rows = detections_rows(store)
-        state["table"].update()
+        state["refresh_rows"](detections_rows(store))
 
     def refresh_exempts():
         state["exempt_table"].rows = exempt_rows(store)
@@ -223,14 +382,10 @@ def _dashboard(store, scanner):
         {"name": "action", "label": "Action", "field": "action", "sortable": True},
         {"name": "actions", "label": "", "field": "actions", "align": "center"},
     ]
-    table = ui.table(columns=columns, rows=detections_rows(store), row_key="hash", pagination=25).classes(
-        "w-full"
-    )
+    all_rows = detections_rows(store)
+    table = ui.table(columns=columns, rows=all_rows, row_key="hash", pagination=25).classes("w-full")
     state["table"] = table
-    with table.add_slot("top-left"):
-        ui.input("Filter...").props('outlined dense debounce="300"').bind_value(table, "filter").classes(
-            "w-72"
-        )
+    state["refresh_rows"] = add_filter_bar(table, all_rows)
     with table.add_slot("body-cell-actions"), table.cell("actions"):
         ui.button(icon="block").props("size=sm flat").classes("mx-0.5").on(
             "click", js_handler="() => emit(props.row, 'exempt')", handler=row_action
@@ -303,10 +458,7 @@ def _history(store):
         {"name": "dry_run", "label": "Dry run", "field": "dry_run", "sortable": True},
     ]
     table = ui.table(columns=columns, rows=rows, row_key="id", pagination=25).classes("w-full")
-    with table.add_slot("top-left"):
-        ui.input("Filter...").props('outlined dense debounce="300"').bind_value(table, "filter").classes(
-            "w-72"
-        )
+    add_filter_bar(table, rows)
 
 
 def _settings(store):
@@ -368,7 +520,41 @@ def _settings(store):
     ui.button("Save settings", icon="save", on_click=save)
 
 
+def _login(redirect_to: str = "/"):
+    setup_theme()
+    if app.storage.user.get("authenticated"):
+        ui.navigate.to("/")
+        return
+
+    def try_login():
+        if username.value == config.auth_user() and password.value == config.auth_password():
+            app.storage.user.update(username=username.value, authenticated=True)
+            ui.navigate.to(redirect_to or "/")
+        else:
+            ui.notify("Wrong username or password", color="negative")
+
+    with ui.card().classes("absolute-center items-stretch w-96"):
+        ui.label("Delugearr").classes("text-2xl font-bold self-center mb-4")
+        username = (
+            ui.input("Username")
+            .props("autofocus autocomplete=username")
+            .classes("w-full")
+            .on("keydown.enter", lambda: password.run_method("focus"))
+        )
+        password = (
+            ui.input("Password", password=True, password_toggle_button=True)
+            .props("autocomplete=current-password")
+            .classes("w-full")
+            .on("keydown.enter", try_login)
+        )
+        ui.button("Log in", on_click=try_login, icon="login").classes("w-full mt-2")
+
+
 def build_pages(store, scanner):
+    @ui.page("/login")
+    def login(redirect_to: str = "/"):
+        _login(redirect_to)
+
     @ui.page("/")
     def dashboard():
         _dashboard(store, scanner)

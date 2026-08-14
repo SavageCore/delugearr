@@ -3,6 +3,7 @@
 import pytest
 
 from delugearr.detector import classify_torrent
+from delugearr.ui import message_category
 
 
 def torrent(tracker_status=None, tracker_host="tracker.example.org", trackers=None):
@@ -100,3 +101,18 @@ def test_tracker_message_field_used():
         )
     )
     assert status == "unregistered"
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("UNREGISTERED TORRENT", "UNREGISTERED TORRENT"),
+        ("COMPLETE SEASON UPLOADED: https://beyond-hd.me/torrents/x", "COMPLETE SEASON UPLOADED"),
+        ("NUKED: wrong episode", "NUKED"),
+        ("TRUMPED: internal available", "TRUMPED"),
+        ("", ""),
+        (None, ""),
+    ],
+)
+def test_message_category(message, expected):
+    assert message_category(message) == expected
