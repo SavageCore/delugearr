@@ -8,6 +8,7 @@ from pathlib import Path
 from . import config
 from .deluge_client import DelugeClient, DelugeError
 from .detector import classify_torrent
+from .notifier import DiscordNotifier
 from .store import Store
 
 log = logging.getLogger("scanner")
@@ -67,6 +68,37 @@ class Scanner:
             self._cfg_url = url
             self._cfg_password = password
 
+    def _fan_out(self, trigger, build):
+        """Send a notification to every enabled connection subscribed to a trigger.
+
+        Each send runs on its own daemon thread so a slow/unreachable webhook
+        never blocks the scan; build(notifier) raises are caught and logged.
+        """
+        for conn in self.store.enabled_connections(trigger):
+            if not conn.get("webhook_url"):
+                continue
+            notifier = DiscordNotifier(conn["webhook_url"], conn.get("username"), conn.get("avatar"))
+
+            def run(n=notifier, b=build, c=conn):
+                try:
+                    b(n)
+                except Exception:
+                    log.exception("discord notification failed (%s)", c.get("name"))
+
+            threading.Thread(target=run, daemon=True).start()
+
+    def _notify_summary(self, run_id, pending, stats):
+        breakdown = {}
+        for rec in pending:
+            host = (rec["torrent"].get("tracker_host") or "") or "unknown"
+            breakdown[host] = breakdown.get(host, 0) + 1
+        max_items = int(self.store.get_settings().get("notify_max_items", 25) or 25)
+
+        def build(n):
+            n.send_summary(stats, run_id, pending, sorted(breakdown.items()), max_items=max_items)
+
+        self._fan_out("scan_summary", build)
+
     def scan(self, dry_run=None, run_id=None):
         with self._lock:
             self.scanning = True
@@ -107,6 +139,7 @@ class Scanner:
             self.last_error = str(exc)
             stats["errors"] += 1
             log.error("Deluge unreachable: %s", exc)
+            self._fan_out("errors", lambda n, exc=exc: n.send_error(str(exc)))
             self.store.update_settings(
                 last_scan_at=time.time(), last_scan_stats=stats, last_scan_error=str(exc)
             )
@@ -199,11 +232,22 @@ class Scanner:
                 stats["removed"] += 1
                 action = "removed_data"
             record(torrent, message, status, action, False)
+            self._fan_out(
+                "removals",
+                lambda n, t=torrent, m=message, cs=cross_seed: n.send_removal(
+                    t.get("name", ""),
+                    t.get("label", ""),
+                    t.get("tracker_host", ""),
+                    m,
+                    remove_data=not cs,
+                ),
+            )
 
         stats["seconds"] = round(time.time() - start, 2)
         if pending:
             self.store.log_detections(pending)
         self.store.update_settings(last_scan_at=time.time(), last_scan_stats=stats, last_scan_error=None)
+        self._notify_summary(run_id, pending, stats)
         log.info("Scan %s: %s", run_id, {k: v for k, v in stats.items() if k != "dry_run"})
         return stats
 
@@ -216,6 +260,17 @@ class Scanner:
             raise DelugeError(f"torrent {torrent_hash} not found in Deluge")
         self.client.remove_torrents([torrent_hash], remove_data=remove_data)
         action = "manual_removed_data" if remove_data else "manual_removed_only"
+        self._fan_out("manual_actions", lambda n: n.send_manual(action, torrent.get("name", ""), remove_data))
+        self._fan_out(
+            "removals",
+            lambda n: n.send_removal(
+                torrent.get("name", ""),
+                torrent.get("label", ""),
+                torrent.get("tracker_host", ""),
+                torrent.get("tracker_status", ""),
+                remove_data=remove_data,
+            ),
+        )
         self.store.log_detection(
             run_id=f"manual-{time.strftime('%Y%m%d-%H%M%S')}",
             torrent=torrent,

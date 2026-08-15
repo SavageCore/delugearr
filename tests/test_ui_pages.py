@@ -178,3 +178,28 @@ async def test_dashboard_filters_reload_from_server(runtime):
         await user.should_see("Settings")
         await user.should_see("API key")
         await user.should_see("Deluge connection")
+
+
+async def test_notification_dialog_builds_on_add(runtime):
+    """Regression: the add-connection dialog must construct without raising
+    (field hints are Quasar props, not ui.input kwargs)."""
+    from nicegui import events
+
+    store, scanner = runtime
+    async with user_simulation(root=lambda: _settings(store, scanner)) as user:
+        await user.open("/")
+        add_btn = next(
+            e
+            for e in user.client.elements.values()
+            if isinstance(e, ui.button) and e.props.get("icon") == "add"
+        )
+        for listener in add_btn._event_listeners.values():  # noqa: SLF001
+            if listener.type == "click":
+                with user.client:
+                    events.handle_event(
+                        listener.handler,
+                        events.GenericEventArguments(sender=add_btn, client=user.client, args=[]),
+                    )
+        assert any(isinstance(e, ui.dialog) for e in user.client.elements.values())
+        links = [e for e in user.client.elements.values() if isinstance(e, ui.link)]
+        assert any("webhook" in (link.text or "").lower() for link in links)

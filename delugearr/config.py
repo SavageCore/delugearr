@@ -92,6 +92,10 @@ def default_keep_data_paths():
     return _json_list(env("KEEP_DATA_PATHS", None), [])
 
 
+def default_notify_max_items():
+    return _int(env("NOTIFY_MAX_ITEMS", "25"), 25)
+
+
 def store_defaults():
     """Seed values used when the store is first initialised."""
     return {
@@ -100,4 +104,5 @@ def store_defaults():
         "keep_data_paths": default_keep_data_paths(),
         "deluge_url": deluge_url(),
         "deluge_password": deluge_password(),
+        "notify_max_items": default_notify_max_items(),
     }

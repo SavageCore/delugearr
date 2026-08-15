@@ -18,7 +18,8 @@ Served at `https://seedbox.savagecore.uk/delugearr` (basic auth, no subdomain):
 
 - **Dashboard** — latest scan's unregistered torrents with sortable/filterable/paginated table, per-row Exempt / Remove·keep-data / Remove+data, exempt list, scan-now button. Torrents you remove or exempt disappear from the list immediately (they still live in History).
 - **History** — audit log of detections/removals (also sortable/filterable).
-- **Settings** — dry-run toggle, scan interval, grace period, per-tracker removal cap, excluded labels, keep-data paths, extra ignore phrases, Deluge connection (URL/password + test button), and the API key (view, copy, regenerate).
+- **Settings** — dry-run toggle, scan interval, grace period, per-tracker removal cap, excluded labels, keep-data paths, extra ignore phrases, Deluge connection (URL/password + test button), the API key (view, copy, regenerate), and **Notifications**.
+- **Notifications** — Sonarr/Radarr-style Discord connections: name, webhook URL, optional username/avatar override, and per-event toggles (scan summary, per-torrent removals, errors, manual actions). Scan summaries are capped (default 25 names) so a big cleanup posts one message instead of flooding the channel.
 
 ## API
 
@@ -34,7 +35,7 @@ curl -X POST -H "X-Api-Key: $KEY" http://127.0.0.1:11012/delugearr/api/scan
 curl http://127.0.0.1:11012/delugearr/api/health   # liveness, no key
 ```
 
-Endpoints: `health`, `status`, `scan`, `detections` (latest run + filters), `history`, `torrents/{hash}/remove`, `torrents/{hash}/exempt`, `exempt` (GET/DELETE), `settings` (GET/PUT — the Deluge password and API key are never returned).
+Endpoints: `health`, `status`, `scan`, `detections` (latest run + filters), `history`, `torrents/{hash}/remove`, `torrents/{hash}/exempt`, `exempt` (GET/DELETE), `settings` (GET/PUT — the Deluge password and API key are never returned), and `notifications` (GET/POST/PUT/DELETE + `{id}/test` — webhook URLs are redacted).
 
 ## Development
 
@@ -64,8 +65,9 @@ Tag a `v*` tag; the release workflow lints/tests and publishes a GitHub release 
 | --- | --- |
 | `delugearr/deluge_client.py` | Thin Deluge Web JSON-RPC client |
 | `delugearr/detector.py` | qbit_manage-ported tracker-message matching |
-| `delugearr/scanner.py` | Scan cycle (fetch, detect, remove, audit) |
-| `delugearr/store.py` | SQLite settings / detections / exempt list |
+| `delugearr/scanner.py` | Scan cycle (fetch, detect, remove, audit, notify) |
+| `delugearr/store.py` | SQLite settings / detections / exempt / notification connections |
+| `delugearr/notifier.py` | Discord webhook notifications (capped summaries) |
 | `delugearr/ui.py` | NiceGUI pages |
 | `delugearr/api.py` | API-key-protected REST API (OpenAPI spec) |
 | `delugearr/app.py` | FastAPI + NiceGUI mount (`/delugearr`) + scheduler |

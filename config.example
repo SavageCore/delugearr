@@ -16,3 +16,7 @@ AUTH_PASSWORD=CHANGE_ME
 # JSON list of paths whose data must never be deleted (optional safety net;
 # unregistered torrents otherwise delete torrent + data, including cross-seeds).
 # KEEP_DATA_PATHS=["/home/savagecore/torrents/completed/cross-seed"]
+# Max torrents listed in a Discord summary message (0 = summary only). The
+# default 25 keeps a big cleanup from flooding the channel. Connections
+# (webhook URL, username, avatar, event triggers) are configured in the UI.
+# NOTIFY_MAX_ITEMS=25

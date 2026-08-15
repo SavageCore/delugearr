@@ -14,8 +14,51 @@ from pydantic import BaseModel, ConfigDict
 
 from . import config
 from .deluge_client import DelugeError
+from .notifier import DiscordNotifier
 
-REDACTED_KEYS = {"deluge_password", "api_key", "storage_secret"}
+REDACTED_KEYS = {"deluge_password", "api_key", "storage_secret", "webhook_url"}
+
+
+def _redact(conn):
+    if conn is None:
+        return None
+    out = dict(conn)
+    out["webhook_url"] = "***" if out.get("webhook_url") else ""
+    return out
+
+
+def _verify_webhook_or_400(webhook_url, username="", avatar=""):
+    """Reject saving a connection whose webhook cannot be reached."""
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="webhook URL required")
+    try:
+        ok = DiscordNotifier(webhook_url, username, avatar).send_test()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"webhook verification failed: {exc}") from exc
+    if not ok:
+        raise HTTPException(status_code=400, detail="webhook verification failed")
+
+
+class Notification(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    webhook_url: str = ""
+    username: str = ""
+    avatar: str = ""
+    triggers: list[str] = []
+    enabled: bool = True
+
+
+class NotificationUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str | None = None
+    webhook_url: str | None = None
+    username: str | None = None
+    avatar: str | None = None
+    triggers: list[str] | None = None
+    enabled: bool | None = None
 
 
 class ScanRequest(BaseModel):
@@ -156,5 +199,47 @@ def build_router(store, scanner) -> APIRouter:
         updates = {k: v for k, v in body.model_dump().items() if v is not None}
         store.update_settings(**updates)
         return settings_get()
+
+    @router.get("/api/notifications", **keyed)
+    def notifications_get() -> dict:
+        return {"rows": [_redact(c) for c in store.list_notifications()]}
+
+    @router.post("/api/notifications", **keyed)
+    def notifications_post(body: Notification) -> dict:
+        data = body.model_dump()
+        _verify_webhook_or_400(data["webhook_url"], data.get("username") or "", data.get("avatar") or "")
+        return _redact(store.add_notification(**data))
+
+    @router.put("/api/notifications/{cid}", **keyed)
+    def notifications_put(cid: int, body: NotificationUpdate) -> dict:
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        if "webhook_url" in updates:
+            _verify_webhook_or_400(
+                updates["webhook_url"], updates.get("username") or "", updates.get("avatar") or ""
+            )
+        row = store.update_notification(cid, **updates)
+        if row is None:
+            raise HTTPException(status_code=404, detail="connection not found")
+        return _redact(row)
+
+    @router.delete("/api/notifications/{cid}", **keyed)
+    def notifications_delete(cid: int) -> dict:
+        store.delete_notification(cid)
+        return {"id": cid}
+
+    @router.post("/api/notifications/{cid}/test", **keyed)
+    def notifications_test(cid: int) -> dict:
+        conn = next((c for c in store.list_notifications() if c["id"] == cid), None)
+        if conn is None:
+            raise HTTPException(status_code=404, detail="connection not found")
+        if not conn.get("webhook_url"):
+            raise HTTPException(status_code=400, detail="webhook URL not set")
+        try:
+            ok = DiscordNotifier(conn["webhook_url"], conn.get("username"), conn.get("avatar")).send_test()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if not ok:
+            raise HTTPException(status_code=502, detail="webhook send failed")
+        return {"sent": True}
 
     return router

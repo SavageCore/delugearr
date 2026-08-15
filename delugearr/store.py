@@ -18,6 +18,7 @@ DEFAULTS = {
     "extra_ignore": [],
     "deluge_url": "http://127.0.0.1:10376",
     "deluge_password": "",
+    "notify_max_items": 25,
     "api_key": None,
     "storage_secret": None,
     "last_scan_at": None,
@@ -37,6 +38,7 @@ EDITABLE_KEYS = {
     "extra_ignore",
     "deluge_url",
     "deluge_password",
+    "notify_max_items",
 }
 
 _SCHEMA = """
@@ -62,6 +64,15 @@ CREATE TABLE IF NOT EXISTS exempt (
     torrent_hash TEXT PRIMARY KEY,
     reason       TEXT,
     added_ts     REAL
+);
+CREATE TABLE IF NOT EXISTS notification_connections (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    webhook_url TEXT,
+    username    TEXT,
+    avatar      TEXT,
+    triggers    TEXT,
+    enabled     INTEGER DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_detections_ts   ON detections(ts);
 CREATE INDEX IF NOT EXISTS idx_detections_run  ON detections(run_id);
@@ -383,3 +394,93 @@ class Store:
 
     def exempt_hashes(self):
         return {r["torrent_hash"] for r in self.list_exempt()}
+
+    # ---- notification connections ----------------------------------------
+    TRIGGERS = ("scan_summary", "errors", "manual_actions", "removals")
+
+    @staticmethod
+    def _connection_row(row):
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "webhook_url": row["webhook_url"] or "",
+            "username": row["username"] or "",
+            "avatar": row["avatar"] or "",
+            "triggers": json.loads(row["triggers"]) if row["triggers"] else [],
+            "enabled": bool(row["enabled"]),
+        }
+
+    def list_notifications(self):
+        def fn(con):
+            rows = con.execute("SELECT * FROM notification_connections ORDER BY id").fetchall()
+            return [self._connection_row(r) for r in rows]
+
+        return self._run(fn)
+
+    def add_notification(self, name, webhook_url="", username="", avatar="", triggers=None, enabled=True):
+        def fn(con):
+            con.execute(
+                "INSERT INTO notification_connections(name,webhook_url,username,avatar,triggers,enabled) "
+                "VALUES(?,?,?,?,?,?)",
+                (
+                    name,
+                    webhook_url,
+                    username,
+                    avatar,
+                    json.dumps(list(triggers or [])),
+                    int(bool(enabled)),
+                ),
+            )
+            self._bump(con)
+            cid = con.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+            row = con.execute("SELECT * FROM notification_connections WHERE id=?", (cid,)).fetchone()
+            return self._connection_row(row)
+
+        return self._run(fn)
+
+    def update_notification(self, cid, **fields):
+        def fn(con):
+            row = con.execute("SELECT * FROM notification_connections WHERE id=?", (cid,)).fetchone()
+            if row is None:
+                return None
+            current = self._connection_row(row)
+            if "name" in fields:
+                current["name"] = fields["name"]
+            if "webhook_url" in fields:
+                current["webhook_url"] = fields["webhook_url"]
+            if "username" in fields:
+                current["username"] = fields["username"]
+            if "avatar" in fields:
+                current["avatar"] = fields["avatar"]
+            if "triggers" in fields:
+                current["triggers"] = list(fields["triggers"] or [])
+            if "enabled" in fields:
+                current["enabled"] = bool(fields["enabled"])
+            con.execute(
+                "UPDATE notification_connections SET name=?,webhook_url=?,username=?,avatar=?,triggers=?,enabled=? "
+                "WHERE id=?",
+                (
+                    current["name"],
+                    current["webhook_url"],
+                    current["username"],
+                    current["avatar"],
+                    json.dumps(current["triggers"]),
+                    int(current["enabled"]),
+                    cid,
+                ),
+            )
+            self._bump(con)
+            return current
+
+        return self._run(fn)
+
+    def delete_notification(self, cid):
+        def fn(con):
+            con.execute("DELETE FROM notification_connections WHERE id=?", (cid,))
+            self._bump(con)
+
+        self._run(fn)
+
+    def enabled_connections(self, trigger):
+        """Enabled connections subscribed to a given trigger."""
+        return [c for c in self.list_notifications() if c["enabled"] and trigger in c["triggers"]]

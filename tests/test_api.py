@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from delugearr import config
 from delugearr.api import build_router
+from delugearr.notifier import DiscordNotifier
 from delugearr.store import Store
 
 
@@ -208,3 +209,76 @@ def test_remove_and_exempt_roundtrip(api):
     resp = client.delete("/delugearr/api/exempt/h2", headers=headers)
     assert resp.status_code == 200
     assert client.get("/delugearr/api/exempt", headers=headers).json()["rows"] == []
+
+
+def test_notifications_crud_and_redaction(api, monkeypatch):
+    monkeypatch.setattr(DiscordNotifier, "send_test", lambda self: True)
+    client, store = api
+    key = store.api_key()
+    headers = {"X-Api-Key": key}
+
+    created = client.post(
+        "/delugearr/api/notifications",
+        headers=headers,
+        json={"name": "Discord", "webhook_url": "https://discord/hook", "triggers": ["scan_summary"]},
+    ).json()
+    assert created["webhook_url"] == "***"
+    cid = created["id"]
+
+    listed = client.get("/delugearr/api/notifications", headers=headers).json()["rows"]
+    assert listed[0]["webhook_url"] == "***"
+    assert store.list_notifications()[0]["webhook_url"] == "https://discord/hook"
+
+    updated = client.put(
+        f"/delugearr/api/notifications/{cid}",
+        headers=headers,
+        json={"enabled": False, "triggers": ["errors"]},
+    ).json()
+    assert updated["enabled"] is False
+    assert updated["triggers"] == ["errors"]
+
+    assert client.delete(f"/delugearr/api/notifications/{cid}", headers=headers).status_code == 200
+    assert client.get("/delugearr/api/notifications", headers=headers).json()["rows"] == []
+
+
+def test_notification_save_requires_working_webhook(api, monkeypatch):
+    monkeypatch.setattr(DiscordNotifier, "send_test", lambda self: False)
+    client, store = api
+    key = store.api_key()
+    headers = {"X-Api-Key": key}
+
+    resp = client.post(
+        "/delugearr/api/notifications",
+        headers=headers,
+        json={"name": "Discord", "webhook_url": "https://discord/bad"},
+    )
+    assert resp.status_code == 400
+    assert store.list_notifications() == []
+
+    resp = client.post(
+        "/delugearr/api/notifications",
+        headers=headers,
+        json={"name": "Discord", "webhook_url": ""},
+    )
+    assert resp.status_code == 400
+    assert store.list_notifications() == []
+
+    def boom(self):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(DiscordNotifier, "send_test", boom)
+    resp = client.post(
+        "/delugearr/api/notifications",
+        headers=headers,
+        json={"name": "Discord", "webhook_url": "https://discord/bad"},
+    )
+    assert resp.status_code == 400
+    assert store.list_notifications() == []
+
+
+def test_notification_test_requires_key_and_missing_returns_404(api):
+    client, store = api
+    key = store.api_key()
+    headers = {"X-Api-Key": key}
+    assert client.post("/delugearr/api/notifications/1/test").status_code == 401
+    assert client.post("/delugearr/api/notifications/999/test", headers=headers).status_code == 404

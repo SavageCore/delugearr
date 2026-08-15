@@ -8,8 +8,16 @@ from nicegui import app, events, run, ui
 
 from . import config
 from .deluge_client import DelugeClient
+from .notifier import DiscordNotifier
 
 log = logging.getLogger("delugearr-ui")
+
+TRIGGER_LABELS = {
+    "scan_summary": "Scan summary",
+    "removals": "Per-torrent removals",
+    "errors": "Errors",
+    "manual_actions": "Manual actions",
+}
 
 ACTION_LABELS = {
     "would_remove_data": "Would remove + data",
@@ -639,6 +647,161 @@ def _settings(store, scanner=None):
         key_input.value = store.regenerate_api_key()
         key_input.update()
         ui.notify("API key regenerated", type="positive")
+
+    notifications_card(store)
+
+
+def notifications_card(store):
+    """Sonarr/Radarr-style Notifications settings section."""
+    with ui.card().classes("w-full max-w-3xl mt-4"):
+        ui.label("Notifications").classes("text-lg font-bold")
+        ui.label(
+            "Send Discord webhooks for the events you choose. Summary messages are "
+            "capped to one per scan so a big cleanup never floods the channel."
+        ).classes("text-sm text-grey")
+
+        cap = ui.number(
+            "Max torrents listed per summary (0 = summary only)",
+            value=float(store.get_settings().get("notify_max_items", 25) or 25),
+            min=0,
+            step=1,
+        ).classes("w-full max-w-2xl")
+
+        def save_cap():
+            store.update_settings(notify_max_items=max(0, int(cap.value)))
+            ui.notify("Settings saved", type="positive")
+
+        def open_dialog(conn):
+            edit = conn is not None
+            conn = conn or {"name": "", "webhook_url": "", "username": "", "avatar": "", "triggers": []}
+            dialog = ui.dialog()
+            with dialog, ui.card().classes("w-96"):
+                ui.label("Edit connection" if edit else "Add connection").classes("text-lg font-bold")
+                name = ui.input("Name", value=conn.get("name") or "").classes("w-full")
+                webhook = (
+                    ui.input("Webhook URL", value=conn.get("webhook_url") or "")
+                    .props('hint="Create a webhook in your Discord server and paste its URL here."')
+                    .classes("w-full")
+                )
+                ui.link(
+                    "How to create a Discord webhook",
+                    "https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks",
+                    new_tab=True,
+                ).classes("text-xs text-grey -mt-1")
+                username = (
+                    ui.input("Username (optional)", value=conn.get("username") or "")
+                    .props('hint="The username to post as. Defaults to the Discord webhook name."')
+                    .classes("w-full")
+                )
+                avatar = (
+                    ui.input("Avatar URL (optional)", value=conn.get("avatar") or "")
+                    .props(
+                        'hint="The avatar to use for messages. Defaults to the avatar you set when creating the webhook."'
+                    )
+                    .classes("w-full")
+                )
+                ui.label("Select which events should trigger this notification").classes(
+                    "text-sm font-medium pt-2"
+                )
+                toggles = {
+                    t: ui.switch(label, value=t in (conn.get("triggers") or []))
+                    for t, label in TRIGGER_LABELS.items()
+                }
+                result_label = ui.label("Saving verifies the webhook first.").classes("text-sm text-grey")
+                with ui.row().classes("gap-2 pt-2 w-full"):
+                    ui.button("Cancel", on_click=dialog.close)
+                    test_btn = ui.button("Test", on_click=lambda: run_test())
+                    ui.button("Save", color="primary", on_click=lambda: save(dialog, conn))
+            dialog.open()
+
+            def invalidate():
+                result_label.text = "Webhook details changed"
+                result_label.classes(replace="text-sm text-grey")
+
+            for field in (webhook, username, avatar):
+                field.on_value_change(lambda _e: invalidate())
+
+            def run_test():
+                url = (webhook.value or "").strip()
+                if not url:
+                    ui.notify("Webhook URL required to test", type="warning")
+                    return
+                result_label.text = "Testing..."
+                result_label.classes(replace="text-sm text-grey")
+                test_btn.disable()
+                ok = verify_webhook()
+                if ok:
+                    result_label.text = "Test successful"
+                    result_label.classes(replace="text-sm text-positive")
+                else:
+                    result_label.text = "Test failed"
+                    result_label.classes(replace="text-sm text-negative")
+                test_btn.enable()
+
+            def verify_webhook():
+                url = (webhook.value or "").strip()
+                try:
+                    return DiscordNotifier(url, username.value, avatar.value).send_test()
+                except Exception as exc:
+                    log.warning("notification test failed: %s", exc)
+                    return False
+
+            def save(dialog, conn):
+                url = (webhook.value or "").strip()
+                if not url:
+                    ui.notify("Webhook URL required to save", type="warning")
+                    return
+                if not verify_webhook():
+                    result_label.text = "Webhook failed verification - not saved"
+                    result_label.classes(replace="text-sm text-negative")
+                    ui.notify("Connection failed verification - not saved", type="negative")
+                    return
+                data = {
+                    "name": name.value or "Discord",
+                    "webhook_url": url,
+                    "username": username.value,
+                    "avatar": avatar.value,
+                    "triggers": [t for t, s in toggles.items() if s.value],
+                }
+                if edit:
+                    store.update_notification(conn["id"], **data)
+                else:
+                    store.add_notification(**data)
+                dialog.close()
+                refresh_list()
+                ui.notify("Saved", type="positive")
+
+        def delete(conn):
+            confirm_dialog(
+                "Delete connection",
+                f'Delete "{conn["name"]}"?',
+                lambda: (store.delete_notification(conn["id"]), refresh_list()),
+            )
+
+        def render_connection(conn):
+            with list_container, ui.row().classes("items-center gap-3 w-full"):
+                enabled = ui.switch(value=conn["enabled"]).props("dense")
+                enabled.on_value_change(lambda e, c=conn["id"]: store.update_notification(c, enabled=e.value))
+                ui.label(conn["name"] or "(unnamed)").classes("flex-1")
+                ui.button(icon="edit").props("flat size=sm").tooltip("Edit").on(
+                    "click", lambda c=conn: open_dialog(c)
+                )
+                ui.button(icon="delete").props("flat size=sm text-negative").tooltip("Delete").on(
+                    "click", lambda c=conn: delete(c)
+                )
+
+        def refresh_list():
+            list_container.clear()
+            with list_container:
+                for conn in store.list_notifications():
+                    render_connection(conn)
+
+        with ui.row().classes("items-center gap-4"):
+            ui.button("Save cap", icon="save", on_click=save_cap)
+            ui.button("Add connection", icon="add", on_click=lambda: open_dialog(None))
+
+        list_container = ui.column().classes("w-full mt-2")
+        refresh_list()
 
 
 def _login(redirect_to: str = "/"):

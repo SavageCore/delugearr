@@ -160,3 +160,38 @@ def test_history_facets(tmp_path):
     assert facets["labels"] == ["tv-sonarr"]
     assert facets["trackers"] == ["other.example.org", "tracker.example.org"]
     assert facets["categories"] == ["Error", "Foo"]
+
+
+def test_notification_connection_crud(tmp_path):
+    store = make_store(tmp_path)
+    conn = store.add_notification(
+        "Discord",
+        "https://discord/hook",
+        username="Bot",
+        avatar="https://img/a.png",
+        triggers=["scan_summary", "errors"],
+    )
+    assert conn["id"] == 1
+    assert conn["enabled"] is True
+
+    assert store.enabled_connections("scan_summary") == [conn]
+    assert store.enabled_connections("removals") == []
+
+    store.update_notification(conn["id"], enabled=False, triggers=["errors"])
+    assert store.enabled_connections("errors") == []
+
+    conn2 = store.add_notification("Off", "https://discord/hook2", triggers=["errors"], enabled=False)
+    assert store.enabled_connections("errors") == []
+
+    store.update_notification(conn2["id"], enabled=True)
+    assert len(store.enabled_connections("errors")) == 1
+
+    store.delete_notification(conn["id"])
+    assert store.list_notifications() == [store.list_notifications()[0]]
+
+
+def test_notify_max_items_default(tmp_path):
+    store = make_store(tmp_path)
+    assert store.get_settings()["notify_max_items"] == 25
+    store.update_settings(notify_max_items=0)
+    assert store.get_settings()["notify_max_items"] == 0
