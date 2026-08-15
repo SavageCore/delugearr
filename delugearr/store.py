@@ -16,7 +16,7 @@ DEFAULTS = {
     "excluded_labels": [],
     "keep_data_paths": [],
     "extra_ignore": [],
-    "deluge_url": "http://127.0.0.1:8112",
+    "deluge_url": "",
     "deluge_password": "",
     "notify_max_items": 25,
     "api_key": None,

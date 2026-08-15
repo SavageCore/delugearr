@@ -585,9 +585,9 @@ def _settings(store, scanner=None):
 
     with ui.card().classes("w-full max-w-3xl mt-4"):
         ui.label("Deluge connection").classes("text-lg font-bold")
-        deluge_url = ui.input("Deluge Web URL", value=current.get("deluge_url") or "").classes(
-            "w-full max-w-2xl"
-        )
+        deluge_url = ui.input(
+            "Deluge Web URL", value=current.get("deluge_url") or "", placeholder="http://127.0.0.1:8112"
+        ).classes("w-full max-w-2xl")
         deluge_password = ui.input(
             "Deluge Web password",
             value=current.get("deluge_password") or "",

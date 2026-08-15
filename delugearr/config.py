@@ -53,7 +53,7 @@ def log_path():
 
 
 def deluge_url():
-    return env("DELUGE_URL", "http://127.0.0.1:8112")
+    return env("DELUGE_URL", "")
 
 
 def deluge_password():

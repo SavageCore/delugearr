@@ -174,7 +174,7 @@ def test_settings_get_redacts_secrets(api):
     client, store = api
     store.update_settings(deluge_password="hunter2")
     body = client.get("/delugearr/api/settings", headers={"X-Api-Key": store.api_key()}).json()
-    assert body["deluge_url"]
+    assert "deluge_url" in body
     assert "deluge_password" not in body
     assert "api_key" not in body
 
