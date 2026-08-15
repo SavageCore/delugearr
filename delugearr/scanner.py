@@ -88,14 +88,13 @@ class Scanner:
             threading.Thread(target=run, daemon=True).start()
 
     def _notify_summary(self, run_id, pending, stats):
-        breakdown = {}
-        for rec in pending:
-            host = (rec["torrent"].get("tracker_host") or "") or "unknown"
-            breakdown[host] = breakdown.get(host, 0) + 1
-        max_items = int(self.store.get_settings().get("notify_max_items", 25) or 25)
+        settings = self.store.get_settings()
+        max_items = int(settings.get("notify_max_items", 25) or 25)
+        base = (settings.get("notify_url_base") or "").rstrip("/")
+        run_url = f"{base}/run/{run_id}" if base else ""
 
         def build(n):
-            n.send_summary(stats, run_id, pending, sorted(breakdown.items()), max_items=max_items)
+            n.send_summary(stats, run_id, pending, run_url=run_url, max_items=max_items)
 
         self._fan_out("scan_summary", build)
 

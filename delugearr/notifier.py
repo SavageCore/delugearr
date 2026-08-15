@@ -93,7 +93,7 @@ class DiscordNotifier:
         return self._send(payload)
 
     # ---- scan summary ----------------------------------------------------
-    def send_summary(self, stats, run_id, sample, tracker_breakdown, max_items=25):
+    def send_summary(self, stats, run_id, sample, run_url="", max_items=25):
         dry_run = bool(stats.get("dry_run", True))
         n = int(stats.get("unregistered", 0))
         color = COLOR_DRY if dry_run else COLOR_LIVE
@@ -107,17 +107,16 @@ class DiscordNotifier:
         ]
         fields.append({"name": "Unregistered", "value": f"{n}", "inline": True})
 
-        if tracker_breakdown:
-            lines = [f"{tracker or 'unknown'}: {count}" for tracker, count in tracker_breakdown]
-            fields.append({"name": "By tracker", "value": "\n".join(lines) or "-"})
-
-        listed, more = _chunk_names([r.get("name") or "" for r in sample], max_items)
+        listed, more = _chunk_torrents(sample, max_items)
         if listed:
             fields.append({"name": "Torrents", "value": listed})
         if more:
-            fields.append({"name": f"+{more} more", "value": f"…and {more} more (see the UI)"})
+            fields.append({"name": f"+{more} more", "value": f"…and {more} more"})
 
-        fields.append({"name": "Run", "value": f"`{run_id}`"})
+        run_value = f"`{run_id}`"
+        if run_url:
+            run_value += f"\n[Open full run]({run_url})"
+        fields.append({"name": "Run", "value": run_value})
 
         payload = self._payload(
             embeds=[
@@ -131,20 +130,65 @@ class DiscordNotifier:
         return self._send(payload)
 
 
-def _chunk_names(names, max_items):
-    """Return a (list_text, more_count) pair, capping listed names.
+def _chunk_torrents(records, max_items):
+    """Return a (list_text, more_count) pair, capping listed torrents.
 
-    ``max_items <= 0`` means no names are listed (summary only).
+    Each record carries the torrent under ``record["torrent"]``; details shown
+    are name, short hash, seeding time and ratio. ``max_items <= 0`` means no
+    torrents are listed (summary only).
     """
-    names = [n for n in names if n]
+    torrents = [r.get("torrent") or {} for r in records if r.get("torrent")]
     if max_items is not None and max_items <= 0:
-        return "", len(names)
-    cap = max_items if max_items else len(names)
-    listed = names[:cap]
-    more = len(names) - len(listed)
+        return "", len(torrents)
+    cap = max_items if max_items else len(torrents)
+    listed = torrents[:cap]
+    more = len(torrents) - len(listed)
     if not listed:
         return "", more
-    text = "\n".join(f"{i + 1}. {name}" for i, name in enumerate(listed))
+    lines = [
+        f"{i + 1}. **{t.get('name') or '(unnamed)'}** · `{short_hash(t.get('hash'))}` "
+        f"· seeded {fmt_seeding(t.get('seeding_time'))} · ratio {fmt_ratio(t.get('ratio'))}"
+        for i, t in enumerate(listed)
+    ]
+    text = "\n".join(lines)
     if len(text) > 1000:
         text = text[:1000].rstrip() + "…"
     return text, more
+
+
+def short_hash(value):
+    value = value or ""
+    return value[:8] or "-"
+
+
+def fmt_seeding(seconds):
+    """Render a seeding_time (seconds) as a compact human duration."""
+    if seconds is None:
+        return "-"
+    try:
+        secs = int(float(seconds))
+    except (TypeError, ValueError):
+        return "-"
+    if secs <= 0:
+        return "0s"
+    days, secs = divmod(secs, 86400)
+    hours, secs = divmod(secs, 3600)
+    minutes, secs = divmod(secs, 60)
+    if days:
+        return f"{days}d {hours}h {minutes}m"
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m"
+    return f"{secs}s"
+
+
+def fmt_ratio(ratio):
+    """Render a ratio float with up to two decimals, skipping trailing zeros."""
+    if ratio is None:
+        return "-"
+    try:
+        value = float(ratio)
+    except (TypeError, ValueError):
+        return "-"
+    return f"{value:.2f}".rstrip("0").rstrip(".") or "0"

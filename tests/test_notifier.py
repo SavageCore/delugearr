@@ -32,7 +32,8 @@ def test_summary_omits_overrides_when_unset(post):
         "unregistered": 426,
         "transient": 0,
     }
-    ok = n.send_summary(stats, "20260101-000000", [{"name": "A.Release.1"}], [("trk", 426)], max_items=25)
+    sample = [{"torrent": {"name": "A.Release.1", "hash": "abcd1234", "seeding_time": 3600, "ratio": 1.5}}]
+    ok = n.send_summary(stats, "20260101-000000", sample, max_items=25)
     assert ok
     body = post[0]["json"]
     assert "username" not in body
@@ -42,6 +43,8 @@ def test_summary_omits_overrides_when_unset(post):
     assert embed["color"] == notifier.COLOR_DRY
     fields = {f["name"]: f["value"] for f in embed["fields"]}
     assert fields["Run"] == "`20260101-000000`"
+    assert "By tracker" not in fields
+    assert "A.Release.1" in fields["Torrents"]
 
 
 def test_summary_title_uses_discord_timestamp(post):
@@ -73,19 +76,47 @@ def test_summary_sends_username_and_avatar(post):
 
 def test_summary_caps_names(post):
     n = DiscordNotifier("https://discord/hook")
-    sample = [{"name": f"Release.{i}"} for i in range(40)]
-    n.send_summary({"dry_run": True}, "run1", sample, [], max_items=10)
+    sample = [
+        {"torrent": {"name": f"Release.{i}", "hash": f"hash{i:02d}", "seeding_time": i * 3600, "ratio": 1.0}}
+        for i in range(40)
+    ]
+    n.send_summary({"dry_run": True}, "run1", sample, max_items=10)
     fields = {f["name"]: f["value"] for f in post[0]["json"]["embeds"][0]["fields"]}
-    assert "1. Release.0" in fields["Torrents"]
+    assert "1. **Release.0**" in fields["Torrents"]
+    assert "`hash00`" in fields["Torrents"]
+    assert "seeded 0s" in fields["Torrents"]
+    assert "ratio 1" in fields["Torrents"]
     assert "30 more" in fields["+30 more"]
 
 
 def test_summary_zero_cap_lists_none(post):
     n = DiscordNotifier("https://discord/hook")
-    n.send_summary({"dry_run": True}, "run1", [{"name": "X"}], [], max_items=0)
+    n.send_summary({"dry_run": True}, "run1", [{"torrent": {"name": "X"}}], max_items=0)
     fields = {f["name"] for f in post[0]["json"]["embeds"][0]["fields"]}
     assert "Torrents" not in fields
     assert "+1 more" in fields
+
+
+def test_summary_renders_run_link_when_url(post):
+    n = DiscordNotifier("https://discord/hook")
+    n.send_summary({"dry_run": True}, "20260101-000000", [], run_url="https://x.example/run/20260101-000000")
+    fields = {f["name"]: f["value"] for f in post[0]["json"]["embeds"][0]["fields"]}
+    assert fields["Run"] == "`20260101-000000`\n[Open full run](https://x.example/run/20260101-000000)"
+
+
+def test_fmt_seeding():
+    assert notifier.fmt_seeding(0) == "0s"
+    assert notifier.fmt_seeding(30) == "30s"
+    assert notifier.fmt_seeding(3600) == "1h 0m"
+    assert notifier.fmt_seeding(90061) == "1d 1h 1m"
+    assert notifier.fmt_seeding(None) == "-"
+
+
+def test_fmt_ratio():
+    assert notifier.fmt_ratio(1.0) == "1"
+    assert notifier.fmt_ratio(1.45) == "1.45"
+    assert notifier.fmt_ratio(0) == "0"
+    assert notifier.fmt_ratio(None) == "-"
 
 
 def test_webhook_exception_is_swallowed(post, monkeypatch):

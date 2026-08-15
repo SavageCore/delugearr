@@ -19,6 +19,7 @@ DEFAULTS = {
     "deluge_url": "",
     "deluge_password": "",
     "notify_max_items": 25,
+    "notify_url_base": "",
     "api_key": None,
     "storage_secret": None,
     "last_scan_at": None,
@@ -39,6 +40,7 @@ EDITABLE_KEYS = {
     "deluge_url",
     "deluge_password",
     "notify_max_items",
+    "notify_url_base",
 }
 
 _SCHEMA = """
@@ -58,7 +60,9 @@ CREATE TABLE IF NOT EXISTS detections (
     status       TEXT,
     action       TEXT,
     size         INTEGER,
-    dry_run      INTEGER
+    dry_run      INTEGER,
+    ratio        REAL,
+    seeding_time INTEGER
 );
 CREATE TABLE IF NOT EXISTS exempt (
     torrent_hash TEXT PRIMARY KEY,
@@ -90,6 +94,7 @@ class Store:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as con:
             con.executescript(_SCHEMA)
+            self._add_columns(con)
             for key, value in self._defaults.items():
                 if con.execute("SELECT 1 FROM settings WHERE key=?", (key,)).fetchone() is None:
                     con.execute("INSERT INTO settings(key,value) VALUES(?,?)", (key, json.dumps(value)))
@@ -107,6 +112,16 @@ class Store:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA busy_timeout=30000")
         return con
+
+    def _add_columns(self, con):
+        """Add columns for databases created before they existed (IF NOT EXISTS won't alter)."""
+        columns = {col["name"] for col in con.execute("PRAGMA table_info(detections)").fetchall()}
+        for name, definition in (
+            ("ratio", "REAL"),
+            ("seeding_time", "INTEGER"),
+        ):
+            if name not in columns:
+                con.execute(f"ALTER TABLE detections ADD COLUMN {name} {definition}")
 
     def _run(self, fn):
         with self._lock:
@@ -187,8 +202,8 @@ class Store:
 
         def fn(con):
             con.executemany(
-                "INSERT INTO detections(run_id,ts,torrent_hash,name,label,tracker,message,status,action,size,dry_run) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO detections(run_id,ts,torrent_hash,name,label,tracker,message,status,action,size,dry_run,ratio,seeding_time) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [
                     (
                         rec["run_id"],
@@ -202,6 +217,8 @@ class Store:
                         rec["action"],
                         int(rec["torrent"].get("total_size", 0) or 0),
                         int(bool(rec["dry_run"])),
+                        rec["torrent"].get("ratio", 0) or 0,
+                        int(rec["torrent"].get("seeding_time", 0) or 0),
                     )
                     for rec in records
                 ],

@@ -100,6 +100,10 @@ def default_notify_max_items():
     return _int(env("NOTIFY_MAX_ITEMS", "25"), 25)
 
 
+def notify_url_base():
+    return env("NOTIFY_URL_BASE", "")
+
+
 def store_defaults():
     """Seed values used when the store is first initialised."""
     return {
@@ -109,4 +113,5 @@ def store_defaults():
         "deluge_url": deluge_url(),
         "deluge_password": deluge_password(),
         "notify_max_items": default_notify_max_items(),
+        "notify_url_base": notify_url_base(),
     }

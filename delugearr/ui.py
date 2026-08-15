@@ -8,7 +8,7 @@ from nicegui import app, events, run, ui
 
 from . import config
 from .deluge_client import DelugeClient
-from .notifier import DiscordNotifier
+from .notifier import DiscordNotifier, fmt_ratio, fmt_seeding
 
 log = logging.getLogger("delugearr-ui")
 
@@ -482,6 +482,44 @@ def _history_row(det):
     }
 
 
+def _run_row(det):
+    return {
+        "hash": det["torrent_hash"],
+        "name": det["name"],
+        "seeding": fmt_seeding(det["seeding_time"]),
+        "ratio": fmt_ratio(det["ratio"]),
+        "label": det["label"],
+        "tracker": det["tracker"],
+        "message": det["message"],
+        "action": ACTION_LABELS.get(det["action"], det["action"]),
+        "ts": fmt_ts(det["ts"]),
+    }
+
+
+def _run(store, run_id):
+    header("Run")
+    rows = [_run_row(det) for det in store.get_run_detections(run_id)]
+    ui.label(f"Run `{run_id}` - {len(rows)} torrents").classes("text-lg font-bold py-2")
+    if not rows:
+        ui.label("No detections for this run.").classes("text-grey")
+        return
+    ui.table(
+        columns=[
+            {"name": "name", "label": "Name", "field": "name", "align": "left"},
+            {"name": "hash", "label": "Hash", "field": "hash", "align": "left"},
+            {"name": "seeding", "label": "Seeded", "field": "seeding", "align": "left"},
+            {"name": "ratio", "label": "Ratio", "field": "ratio", "align": "left"},
+            {"name": "label", "label": "Label", "field": "label"},
+            {"name": "tracker", "label": "Tracker", "field": "tracker"},
+            {"name": "message", "label": "Tracker message", "field": "message", "align": "left"},
+            {"name": "action", "label": "Action", "field": "action"},
+            {"name": "ts", "label": "Time", "field": "ts"},
+        ],
+        rows=rows,
+        row_key="hash",
+    ).classes("w-full")
+
+
 def _history(store):
     header("History")
     columns = [
@@ -670,6 +708,16 @@ def notifications_card(store):
             store.update_settings(notify_max_items=max(0, int(cap.value)))
             ui.notify("Settings saved", type="positive")
 
+        url_base = ui.input(
+            "Public UI base URL (for notification run links)",
+            value=store.get_settings().get("notify_url_base") or "",
+            placeholder="https://delugearr.example.com",
+        ).classes("w-full max-w-2xl")
+
+        def save_url_base():
+            store.update_settings(notify_url_base=(url_base.value or "").strip())
+            ui.notify("Settings saved", type="positive")
+
         def open_dialog(conn):
             edit = conn is not None
             conn = conn or {"name": "", "webhook_url": "", "username": "", "avatar": "", "triggers": []}
@@ -797,6 +845,7 @@ def notifications_card(store):
 
         with ui.row().classes("items-center gap-4"):
             ui.button("Save cap", icon="save", on_click=save_cap)
+            ui.button("Save URL", icon="save", on_click=save_url_base)
             ui.button("Add connection", icon="add", on_click=lambda: open_dialog(None))
 
         list_container = ui.column().classes("w-full mt-2")
@@ -848,6 +897,10 @@ def build_pages(store, scanner):
     @ui.page("/history")
     def history():
         _history(store)
+
+    @ui.page("/run/{run_id}")
+    def run_page(run_id: str):
+        _run(store, run_id)
 
     @ui.page("/settings")
     def settings_page():

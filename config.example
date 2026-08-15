@@ -25,3 +25,7 @@ AUTH_PASSWORD=CHANGE_ME
 # default 25 keeps a big cleanup from flooding the channel. Connections
 # (webhook URL, username, avatar, event triggers) are configured in the UI.
 # NOTIFY_MAX_ITEMS=25
+# Public base URL where this app's UI is reachable. Used to build the "Open
+# full run" link in Discord summary messages. Any value with a trailing slash
+# is normalised. If unset, the link is omitted. Also settable in the UI.
+# NOTIFY_URL_BASE=https://delugearr.example.com

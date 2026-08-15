@@ -14,6 +14,8 @@ def torrent(hash, name="Some.Release.2026", tracker_host="tracker.example.org"):
         "label": "tv-sonarr",
         "tracker_host": tracker_host,
         "total_size": 123,
+        "ratio": 1.5,
+        "seeding_time": 7200,
     }
 
 
@@ -195,3 +197,32 @@ def test_notify_max_items_default(tmp_path):
     assert store.get_settings()["notify_max_items"] == 25
     store.update_settings(notify_max_items=0)
     assert store.get_settings()["notify_max_items"] == 0
+
+
+def test_log_detection_persists_ratio_and_seeding(tmp_path):
+    store = make_store(tmp_path)
+    store.log_detection("run-1", torrent("h1"), "x", "unregistered", "would_remove_data", True)
+    row = store.get_run_detections("run-1")[0]
+    assert row["ratio"] == 1.5
+    assert row["seeding_time"] == 7200
+
+
+def test_old_database_gets_new_columns(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "app.db"
+    con = sqlite3.connect(path)
+    con.execute(
+        "CREATE TABLE detections ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts REAL, torrent_hash TEXT,"
+        "name TEXT, label TEXT, tracker TEXT, message TEXT, status TEXT, action TEXT,"
+        "size INTEGER, dry_run INTEGER)"
+    )
+    con.commit()
+    con.close()
+
+    store = Store(path)
+    store.log_detection("run-1", torrent("h1"), "x", "unregistered", "would_remove_data", True)
+    row = store.get_run_detections("run-1")[0]
+    assert row["ratio"] == 1.5
+    assert row["seeding_time"] == 7200
