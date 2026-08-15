@@ -184,9 +184,10 @@ def test_settings_put_updates(api):
     resp = client.put(
         "/delugearr/api/settings",
         headers={"X-Api-Key": store.api_key()},
-        json={"interval_minutes": 15, "deluge_password": "newpass"},
+        json={"interval_minutes": 15, "deluge_password": "newpass", "notify_max_items": 10},
     )
     assert resp.status_code == 200
+    assert resp.json()["notify_max_items"] == 10
     assert "deluge_password" not in resp.json()
     settings = store.get_settings()
     assert settings["interval_minutes"] == 15

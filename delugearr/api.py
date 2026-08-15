@@ -87,6 +87,7 @@ class SettingsUpdate(BaseModel):
     extra_ignore: list[str] | None = None
     deluge_url: str | None = None
     deluge_password: str | None = None
+    notify_max_items: int | None = None
 
 
 def build_router(store, scanner) -> APIRouter:
