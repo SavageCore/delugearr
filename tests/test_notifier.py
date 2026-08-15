@@ -36,7 +36,7 @@ def test_summary_omits_overrides_when_unset(post):
     ok = n.send_summary(stats, "20260101-000000", sample, max_items=25)
     assert ok
     body = post[0]["json"]
-    assert body["username"] == "Delugearr"
+    assert "username" not in body
     assert "avatar_url" not in body
     embed = body["embeds"][0]
     assert "<t:" in embed["title"]
