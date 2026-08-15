@@ -7,7 +7,7 @@ the per-removal trigger is optional and still capped per scan.
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 import requests
 
@@ -113,20 +113,18 @@ class DiscordNotifier:
         if more:
             fields.append({"name": f"+{more} more", "value": f"…and {more} more"})
 
-        run_value = f"`{run_id}`"
-        if run_url:
-            run_value += f"\n[Open full run]({run_url})"
-        fields.append({"name": "Run", "value": run_value})
+        fields.append({"name": "Run", "value": f"`{run_id}`"})
 
-        payload = self._payload(
-            embeds=[
-                {
-                    "title": f"Scan {_discord_ts(run_id)}",
-                    "color": color,
-                    "fields": fields,
-                }
-            ]
-        )
+        embed = {
+            "title": f"Scan {_discord_ts(run_id)}",
+            "color": color,
+            "fields": fields,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        if run_url:
+            embed["url"] = run_url  # makes the whole title a rich, clickable link
+
+        payload = self._payload(embeds=[embed])
         return self._send(payload)
 
 

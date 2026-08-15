@@ -100,8 +100,19 @@ def test_summary_zero_cap_lists_none(post):
 def test_summary_renders_run_link_when_url(post):
     n = DiscordNotifier("https://discord/hook")
     n.send_summary({"dry_run": True}, "20260101-000000", [], run_url="https://x.example/run/20260101-000000")
-    fields = {f["name"]: f["value"] for f in post[0]["json"]["embeds"][0]["fields"]}
-    assert fields["Run"] == "`20260101-000000`\n[Open full run](https://x.example/run/20260101-000000)"
+    embed = post[0]["json"]["embeds"][0]
+    assert embed["url"] == "https://x.example/run/20260101-000000"
+    assert "T" in embed["timestamp"]  # ISO-8601
+    fields = {f["name"]: f["value"] for f in embed["fields"]}
+    assert fields["Run"] == "`20260101-000000`"
+    assert "Open full run" not in fields["Run"]
+
+
+def test_summary_omits_url_when_unset(post):
+    n = DiscordNotifier("https://discord/hook")
+    n.send_summary({"dry_run": True}, "20260101-000000", [])
+    embed = post[0]["json"]["embeds"][0]
+    assert "url" not in embed
 
 
 def test_fmt_seeding():
