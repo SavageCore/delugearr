@@ -23,6 +23,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from . import config
 from . import ui as ui_module
 from .api import build_router
+from .notifier import DEFAULT_AVATAR
 from .scanner import Scanner
 from .store import Store
 
@@ -98,6 +99,7 @@ def create_app(store, scanner):
         fastapi_app,
         mount_path=config.base_path(),
         title="Delugearr",
+        favicon=DEFAULT_AVATAR,
         dark=None,
         storage_secret=_storage_secret(store),
         show_welcome_message=False,

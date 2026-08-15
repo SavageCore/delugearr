@@ -8,7 +8,7 @@ from nicegui import app, events, run, ui
 
 from . import config
 from .deluge_client import DelugeClient
-from .notifier import DiscordNotifier, fmt_ratio, fmt_seeding
+from .notifier import DEFAULT_AVATAR, DiscordNotifier, fmt_ratio, fmt_seeding
 
 log = logging.getLogger("delugearr-ui")
 
@@ -103,7 +103,9 @@ def header(current):
         ui.header(elevated=True).classes("items-center px-4 py-2"),
         ui.row().classes("items-center justify-between w-full gap-4"),
     ):
-        ui.label("Delugearr").classes("text-xl font-bold")
+        with ui.row().classes("items-center gap-2"):
+            ui.image(DEFAULT_AVATAR).classes("w-8 h-8 rounded")
+            ui.label("Delugearr").classes("text-xl font-bold")
         with ui.row().classes("items-center gap-1"):
             for name, path in (("Dashboard", "/"), ("History", "/history"), ("Settings", "/settings")):
                 active = "bg-white/15" if name == current else "hover:bg-white/10"
@@ -902,7 +904,9 @@ def _login(redirect_to: str = "/"):
             ui.notify("Wrong username or password", color="negative")
 
     with ui.card().classes("absolute-center items-stretch w-96"):
-        ui.label("Delugearr").classes("text-2xl font-bold self-center mb-4")
+        with ui.column().classes("items-center gap-2 mb-4"):
+            ui.image(DEFAULT_AVATAR).classes("w-16 h-16 rounded-full")
+            ui.label("Delugearr").classes("text-2xl font-bold")
         username = (
             ui.input("Username")
             .props("autofocus autocomplete=username")

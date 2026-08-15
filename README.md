@@ -1,5 +1,9 @@
 # delugearr
 
+<p align="center">
+  <img src="Logo/256.png" alt="Delugearr" width="128" height="128" />
+</p>
+
 Detect torrents that a tracker reports as **unregistered** (deleted, trumped,
 nuked) and remove them. NiceGUI web UI, *arr-style API.
 
