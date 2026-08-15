@@ -35,7 +35,7 @@ def _discord_ts(run_id):
 class DiscordNotifier:
     def __init__(self, webhook_url, username=None, avatar=None):
         self.webhook_url = webhook_url
-        self.username = username or None
+        self.username = username or "Delugearr"
         self.avatar = avatar or None
 
     def _payload(self, **kwargs):
