@@ -36,11 +36,14 @@ def test_summary_omits_overrides_when_unset(post):
     ok = n.send_summary(stats, "20260101-000000", sample, max_items=25)
     assert ok
     body = post[0]["json"]
-    assert "username" not in body
-    assert "avatar_url" not in body
+    assert body["username"] == "Delugearr"
+    assert body["avatar_url"] == notifier.DEFAULT_AVATAR
     embed = body["embeds"][0]
     assert "<t:" in embed["title"]
     assert embed["color"] == notifier.COLOR_DRY
+    assert embed["thumbnail"]["url"] == notifier.DEFAULT_AVATAR
+    assert embed["footer"]["text"] == "Delugearr"
+    assert embed["footer"]["icon_url"] == notifier.DEFAULT_AVATAR
     fields = {f["name"]: f["value"] for f in embed["fields"]}
     assert fields["Run"] == "`20260101-000000`"
     assert "By tracker" not in fields

@@ -18,6 +18,8 @@ COLOR_LIVE = 0xDC2626
 COLOR_ERROR = 0xEF4444
 COLOR_OK = 0x16A34A
 
+DEFAULT_AVATAR = "https://cdn.jsdelivr.net/gh/SavageCore/delugearr@main/Logo/256.png"
+
 
 def _discord_ts(run_id):
     """Render a %Y%m%d-%H%M%S scan run_id as a Discord `<t:…:f>` timestamp.
@@ -35,8 +37,8 @@ def _discord_ts(run_id):
 class DiscordNotifier:
     def __init__(self, webhook_url, username=None, avatar=None):
         self.webhook_url = webhook_url
-        self.username = username or None
-        self.avatar = avatar or None
+        self.username = username or "Delugearr"
+        self.avatar = avatar or DEFAULT_AVATAR
 
     def _payload(self, **kwargs):
         payload = {k: v for k, v in kwargs.items() if v is not None}
@@ -119,6 +121,8 @@ class DiscordNotifier:
             "title": f"Scan {_discord_ts(run_id)}",
             "color": color,
             "fields": fields,
+            "thumbnail": {"url": self.avatar},
+            "footer": {"text": "Delugearr", "icon_url": self.avatar},
             "timestamp": datetime.now(UTC).isoformat(),
         }
         if run_url:
