@@ -31,4 +31,4 @@ venv/
 .idea/
 .DS_Store
 
-.opencode/opencode.json
+.opencode/
