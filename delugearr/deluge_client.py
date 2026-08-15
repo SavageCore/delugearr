@@ -37,6 +37,17 @@ class DelugeError(Exception):
     pass
 
 
+def _is_auth_error(error):
+    """True when a Deluge RPC error means the web session is not authenticated.
+
+    Deluge's web JSON-RPC session cookie can expire between scans; the error
+    surfaces on whatever RPC was running (e.g. core.get_torrents_status), not
+    on auth.login.
+    """
+    text = error.get("message") if isinstance(error, dict) else str(error)
+    return "Not authenticated" in text
+
+
 class DelugeClient:
     def __init__(self, url, password, timeout=30):
         self.url = (url or "http://127.0.0.1:8112").rstrip("/") + "/json"
@@ -46,7 +57,7 @@ class DelugeClient:
         self._id = 0
         self._authed = False
 
-    def call(self, method, params=None):
+    def call(self, method, params=None, _retry=True):
         self._id += 1
         payload = {"method": method, "params": params or [], "id": self._id}
         try:
@@ -59,14 +70,19 @@ class DelugeClient:
         except ValueError as exc:
             raise DelugeError(f"Non-JSON response calling {method}") from exc
         if data.get("error"):
-            raise DelugeError(f"Deluge RPC error calling {method}: {data['error']}")
+            error = data["error"]
+            if _retry and _is_auth_error(error):
+                self._authed = False
+                self.login()
+                return self.call(method, params, _retry=False)
+            raise DelugeError(f"Deluge RPC error calling {method}: {error}")
         return data.get("result")
 
     def login(self):
         if self._authed:
             return
         try:
-            result = self.call("auth.login", [self.password])
+            result = self.call("auth.login", [self.password], _retry=False)
         except DelugeError as exc:
             raise DelugeError(f"Deluge auth failed: {exc}") from exc
         if result is not True:
