@@ -34,7 +34,7 @@ CONFIG_PATH=./config AUTH_USER=admin AUTH_PASSWORD='choose-one' python -m deluge
 ```
 
 Open `http://127.0.0.1:11012/delugearr`, log in, and point it at Deluge in
-**Settings** (URL and Web UI password, defaults to `http://127.0.0.1:10376`).
+**Settings** (URL and Web UI password, defaults to `http://127.0.0.1:8112`).
 Scan interval, dry run and exclusions are all editable there too.
 
 - `CONFIG_PATH` (default `/etc/delugearr`) holds the SQLite database, the log
@@ -111,10 +111,10 @@ make install-hooks  # lefthook git hooks (lint + conventional commits)
 
 ## Running as a service
 
-`delugearr.service` is an example systemd unit: edit `User`, `Group` and the
-paths, drop it in `/etc/systemd/system/`, and point `EnvironmentFile` at your
-config. If you expose the app beyond localhost, put a reverse proxy with TLS in
-front of it.
+`delugearr.service.example` is an example systemd unit: copy it to
+`delugearr.service`, edit `User`, `Group` and the paths, drop it in
+`/etc/systemd/system/`, and point `EnvironmentFile` at your config. If you
+expose the app beyond localhost, put a reverse proxy with TLS in front of it.
 
 Tag a `v*` tag to cut a release: the workflow lints, tests and publishes a
 GitHub release with a wheel.

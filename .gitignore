@@ -24,6 +24,7 @@ venv/
 # Local deployment
 /deploy.sh
 /nginx-delugearr.conf
+/delugearr.service
 
 # Editors / OS
 .vscode/

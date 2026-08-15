@@ -1,6 +1,6 @@
 """Thin client over the Deluge Web JSON-RPC API.
 
-Connects to the Deluge Web UI (default http://127.0.0.1:10376/json) using its
+Connects to the Deluge Web UI (default http://127.0.0.1:8112/json) using its
 Web UI password.
 """
 
@@ -39,7 +39,7 @@ class DelugeError(Exception):
 
 class DelugeClient:
     def __init__(self, url, password, timeout=30):
-        self.url = (url or "http://127.0.0.1:10376").rstrip("/") + "/json"
+        self.url = (url or "http://127.0.0.1:8112").rstrip("/") + "/json"
         self.password = password
         self.timeout = timeout
         self.session = requests.Session()

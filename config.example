@@ -1,6 +1,6 @@
 # Copy to /etc/delugearr/config (chmod 600) or export as env vars.
 # This file is read by the systemd unit via EnvironmentFile=.
-DELUGE_URL=http://127.0.0.1:10376
+DELUGE_URL=http://127.0.0.1:8112
 DELUGE_PASSWORD=CHANGE_ME
 PORT=11012
 BASE_PATH=/delugearr
