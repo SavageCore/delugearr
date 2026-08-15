@@ -207,11 +207,11 @@ class Scanner:
                     continue
                 tracker_count[host_key] = tracker_count.get(host_key, 0) + 1
 
-            cross_seed = any(_path_under(torrent.get("save_path"), p) for p in keep_paths)
+            keep_data = any(_path_under(torrent.get("save_path"), p) for p in keep_paths)
 
             if dry_run:
-                action = "would_remove_only" if cross_seed else "would_remove_data"
-                if cross_seed:
+                action = "would_remove_only" if keep_data else "would_remove_data"
+                if keep_data:
                     stats["would_remove_nodata"] += 1
                 else:
                     stats["would_remove"] += 1
@@ -219,13 +219,13 @@ class Scanner:
                 continue
 
             try:
-                self.client.remove_torrents([torrent_hash], remove_data=not cross_seed)
+                self.client.remove_torrents([torrent_hash], remove_data=not keep_data)
             except DelugeError as exc:
                 log.error("Failed removing %s (%s): %s", torrent.get("name"), torrent_hash, exc)
                 stats["errors"] += 1
                 record(torrent, message, status, "error", False)
                 continue
-            if cross_seed:
+            if keep_data:
                 stats["removed_nodata"] += 1
                 action = "removed_only"
             else:
@@ -234,12 +234,12 @@ class Scanner:
             record(torrent, message, status, action, False)
             self._fan_out(
                 "removals",
-                lambda n, t=torrent, m=message, cs=cross_seed: n.send_removal(
+                lambda n, t=torrent, m=message, kd=keep_data: n.send_removal(
                     t.get("name", ""),
                     t.get("label", ""),
                     t.get("tracker_host", ""),
                     m,
-                    remove_data=not cs,
+                    remove_data=not kd,
                 ),
             )
 

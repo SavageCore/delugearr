@@ -307,7 +307,6 @@ def _dashboard(store, scanner):
             parts = [
                 f"total {stats.get('total', 0)}",
                 f"unregistered {stats.get('unregistered', 0)}",
-                f"transient {stats.get('transient', 0)}",
             ]
             if stats.get("dry_run"):
                 parts.append("dry-run")
@@ -811,6 +810,9 @@ def _login(redirect_to: str = "/"):
         return
 
     def try_login():
+        if not config.auth_password():
+            ui.notify("AUTH_PASSWORD is not set", color="negative")
+            return
         if username.value == config.auth_user() and password.value == config.auth_password():
             app.storage.user.update(username=username.value, authenticated=True)
             ui.navigate.to(redirect_to or "/")

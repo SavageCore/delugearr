@@ -125,9 +125,10 @@ def main():
     Scheduler(scanner, store).start()
     app = create_app(store, scanner)
     log.info(
-        "delugearr %s listening on 127.0.0.1:%s (mount %s)",
+        "delugearr %s listening on %s:%s (mount %s)",
         __import__("delugearr").__version__,
+        config.host(),
         config.port(),
         config.base_path(),
     )
-    uvicorn.run(app, host="127.0.0.1", port=config.port(), log_level="info")
+    uvicorn.run(app, host=config.host(), port=config.port(), log_level="info")

@@ -19,7 +19,7 @@ from delugearr.ui import _dashboard, _history, _settings
 def runtime(tmp_path, monkeypatch):
     monkeypatch.setenv("CONFIG_PATH", str(tmp_path))
     monkeypatch.setenv("BASE_PATH", "/delugearr")
-    monkeypatch.setenv("AUTH_USER", "savagecore")
+    monkeypatch.setenv("AUTH_USER", "admin")
     monkeypatch.setenv("AUTH_PASSWORD", "testpass")
     monkeypatch.setenv("DELUGE_URL", "http://127.0.0.1:1")
     store = Store(config.db_path(), defaults=config.store_defaults())

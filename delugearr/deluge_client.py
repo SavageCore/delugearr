@@ -1,7 +1,7 @@
 """Thin client over the Deluge Web JSON-RPC API.
 
-Connects to the Deluge Web UI (default http://127.0.0.1:10376/json) using the
-same password the *arr applications use on the seedbox.
+Connects to the Deluge Web UI (default http://127.0.0.1:10376/json) using its
+Web UI password.
 """
 
 import logging

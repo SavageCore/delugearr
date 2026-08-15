@@ -1,4 +1,4 @@
-.PHONY: install-hooks lint test deploy
+.PHONY: install-hooks lint test
 
 install-hooks:
 	lefthook install
@@ -9,6 +9,3 @@ lint:
 
 test:
 	pytest
-
-deploy:
-	./deploy.sh

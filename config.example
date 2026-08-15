@@ -9,13 +9,16 @@ CONFIG_PATH=/etc/delugearr
 DRY_RUN=1
 SCAN_INTERVAL_MINUTES=30
 # Web UI login (independent of the nginx basic auth; both apply).
-AUTH_USER=savagecore
+AUTH_USER=admin
 AUTH_PASSWORD=CHANGE_ME
 # Optional: fixed session secret; generated and persisted automatically if unset.
 # STORAGE_SECRET=changeme
+# Bind address for the server. Defaults to localhost; set 0.0.0.0 to expose it
+# on the network (put a reverse proxy in front if you do).
+# HOST=0.0.0.0
 # JSON list of paths whose data must never be deleted (optional safety net;
-# unregistered torrents otherwise delete torrent + data, including cross-seeds).
-# KEEP_DATA_PATHS=["/home/savagecore/torrents/completed/cross-seed"]
+# unregistered torrents otherwise delete torrent + data).
+# KEEP_DATA_PATHS=["/data/torrents/keep"]
 # Max torrents listed in a Discord summary message (0 = summary only). The
 # default 25 keeps a big cleanup from flooding the channel. Connections
 # (webhook URL, username, avatar, event triggers) are configured in the UI.

@@ -21,6 +21,10 @@ venv/
 # Local config / secrets
 /etc/
 
+# Local deployment
+/deploy.sh
+/nginx-delugearr.conf
+
 # Editors / OS
 .vscode/
 .idea/

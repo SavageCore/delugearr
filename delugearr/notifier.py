@@ -100,7 +100,7 @@ class DiscordNotifier:
 
         fields = []
         if dry_run:
-            fields.append({"name": "Mode", "value": "DRY RUN — nothing was removed", "inline": True})
+            fields.append({"name": "Mode", "value": "DRY RUN, nothing was removed", "inline": True})
             fields.append(
                 {
                     "name": "Would remove",
@@ -110,7 +110,7 @@ class DiscordNotifier:
                 }
             )
         else:
-            fields.append({"name": "Mode", "value": "LIVE — removals executed", "inline": True})
+            fields.append({"name": "Mode", "value": "LIVE, removals executed", "inline": True})
             fields.append(
                 {
                     "name": "Removed",
@@ -120,12 +120,11 @@ class DiscordNotifier:
             )
         fields.append({"name": "Total", "value": f"{stats.get('total', 0)}", "inline": True})
         fields.append({"name": "Unregistered", "value": f"{n}", "inline": True})
-        fields.append({"name": "Transient", "value": f"{stats.get('transient', 0)}", "inline": True})
         fields.append({"name": "Errors", "value": f"{stats.get('errors', 0)}", "inline": True})
 
         if tracker_breakdown:
             lines = [f"{tracker or 'unknown'}: {count}" for tracker, count in tracker_breakdown]
-            fields.append({"name": "By tracker", "value": "\n".join(lines) or "—"})
+            fields.append({"name": "By tracker", "value": "\n".join(lines) or "-"})
 
         listed, more = _chunk_names([r.get("name") or "" for r in sample], max_items)
         if listed:
@@ -138,7 +137,7 @@ class DiscordNotifier:
         payload = self._payload(
             embeds=[
                 {
-                    "title": f"Scan {_discord_ts(run_id)} — {n} unregistered",
+                    "title": f"Scan {_discord_ts(run_id)}: {n} unregistered",
                     "color": color,
                     "fields": fields,
                 }

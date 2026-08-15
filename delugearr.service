@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=savagecore
-Group=savagecore
+User=delugearr
+Group=delugearr
 WorkingDirectory=/opt/delugearr
 EnvironmentFile=/etc/delugearr/config
 ExecStart=/opt/delugearr/venv/bin/python -m delugearr

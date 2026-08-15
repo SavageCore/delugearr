@@ -61,7 +61,7 @@ def deluge_password():
 
 
 def auth_user():
-    return env("AUTH_USER", "savagecore")
+    return env("AUTH_USER", "admin")
 
 
 def auth_password():
@@ -74,6 +74,10 @@ def storage_secret():
 
 def base_path():
     return env("BASE_PATH", "/delugearr").rstrip("/")
+
+
+def host():
+    return env("HOST", "127.0.0.1")
 
 
 def port():
