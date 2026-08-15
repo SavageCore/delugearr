@@ -484,6 +484,7 @@ def _history_row(det):
 
 def _run_row(det):
     return {
+        "id": det["id"],
         "hash": det["torrent_hash"],
         "name": det["name"],
         "seeding": fmt_seeding(det["seeding_time"]),
@@ -493,31 +494,63 @@ def _run_row(det):
         "message": det["message"],
         "action": ACTION_LABELS.get(det["action"], det["action"]),
         "ts": fmt_ts(det["ts"]),
+        "dry_run": "yes" if det["dry_run"] else "no",
     }
+
+
+def _run_rows(store, run_id):
+    return [_run_row(det) for det in store.get_run_detections(run_id)]
 
 
 def _run(store, run_id):
     header("Run")
-    rows = [_run_row(det) for det in store.get_run_detections(run_id)]
-    ui.label(f"Run `{run_id}` - {len(rows)} torrents").classes("text-lg font-bold py-2")
-    if not rows:
-        ui.label("No detections for this run.").classes("text-grey")
+    all_rows = _run_rows(store, run_id)
+    if not all_rows:
+        ui.label(f"Run `{run_id}` - no detections.").classes("text-grey py-2")
         return
-    ui.table(
-        columns=[
-            {"name": "name", "label": "Name", "field": "name", "align": "left"},
-            {"name": "hash", "label": "Hash", "field": "hash", "align": "left"},
-            {"name": "seeding", "label": "Seeded", "field": "seeding", "align": "left"},
-            {"name": "ratio", "label": "Ratio", "field": "ratio", "align": "left"},
-            {"name": "label", "label": "Label", "field": "label"},
-            {"name": "tracker", "label": "Tracker", "field": "tracker"},
-            {"name": "message", "label": "Tracker message", "field": "message", "align": "left"},
-            {"name": "action", "label": "Action", "field": "action"},
-            {"name": "ts", "label": "Time", "field": "ts"},
-        ],
-        rows=rows,
-        row_key="hash",
-    ).classes("w-full")
+    dry = bool(all_rows[0]["dry_run"] == "yes")
+    if dry:
+        banner("DRY RUN - unregistered torrents were detected but NOT removed", "bg-orange-3 text-black")
+    else:
+        banner("LIVE MODE - unregistered torrents were removed", "bg-red-3 text-black")
+    ui.label(f"Run `{run_id}` - {len(all_rows)} torrents").classes("text-lg font-bold py-2")
+
+    columns = [
+        {
+            "name": "name",
+            "label": "Name",
+            "field": "name",
+            "sortable": True,
+            "align": "left",
+            "required": True,
+        },
+        {"name": "hash", "label": "Hash", "field": "hash", "sortable": True, "align": "left"},
+        {"name": "seeding", "label": "Seeded", "field": "seeding", "sortable": True, "align": "left"},
+        {"name": "ratio", "label": "Ratio", "field": "ratio", "sortable": True, "align": "left"},
+        {"name": "label", "label": "Label", "field": "label", "sortable": True},
+        {"name": "tracker", "label": "Tracker", "field": "tracker", "sortable": True},
+        {
+            "name": "message",
+            "label": "Tracker message",
+            "field": "message",
+            "sortable": True,
+            "align": "left",
+        },
+        {"name": "action", "label": "Action", "field": "action", "sortable": True},
+        {"name": "ts", "label": "Time", "field": "ts", "sortable": True},
+        {"name": "dry_run", "label": "Dry run", "field": "dry_run", "sortable": True},
+    ]
+    facets = detection_facets(all_rows)
+
+    def fetcher(filters, sort_by, descending, page, rows_per_page):
+        rows = [r for r in all_rows if matches_filters(r, filters)]
+        if sort_by:
+            rows.sort(key=lambda r: r.get(sort_by) or "", reverse=descending)
+        total = len(rows)
+        start = (page - 1) * rows_per_page
+        return rows[start : start + rows_per_page], total
+
+    paged_table(columns, fetcher, page_size=25, row_key="id", facets=facets)
 
 
 def _history(store):
