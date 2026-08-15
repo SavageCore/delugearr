@@ -96,6 +96,8 @@ class Scanner:
             threading.Thread(target=run, daemon=True).start()
 
     def _notify_summary(self, run_id, pending, stats):
+        if not pending:
+            return
         settings = self.store.get_settings()
         max_items = int(settings.get("notify_max_items", 25) or 25)
         base = (settings.get("notify_url_base") or "").rstrip("/")
