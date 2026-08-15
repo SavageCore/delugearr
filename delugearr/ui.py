@@ -623,7 +623,7 @@ def _settings(store, scanner=None):
         ui.label("API").classes("text-lg font-bold")
         ui.label(
             "Use this key with the X-Api-Key header (or ?apikey= query) on every /api request."
-            " See /delugearr/api/docs for the spec."
+            f" See {config.base_path()}/api/docs for the spec."
         ).classes("text-sm text-grey")
         api_key = store.api_key()
         with ui.row().classes("items-center gap-2 w-full"):

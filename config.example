@@ -3,7 +3,9 @@
 DELUGE_URL=http://127.0.0.1:8112
 DELUGE_PASSWORD=CHANGE_ME
 PORT=11012
-BASE_PATH=/delugearr
+# Optional: mount the app under a sub-path (e.g. /delugearr) behind a reverse
+# proxy that strips the prefix. Default: served at the root (/).
+# BASE_PATH=/delugearr
 CONFIG_PATH=/etc/delugearr
 # 1 = detect + log only (default, safe). 0 = actually remove torrents.
 DRY_RUN=1

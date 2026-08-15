@@ -1,8 +1,7 @@
 # delugearr
 
-Detect and clean up **"unregistered" torrents** in Deluge, the ones a tracker
-reports as no longer registered (deleted, trumped, nuked), and remove them.
-NiceGUI web UI, *arr-style API.
+Detect torrents that a tracker reports as **unregistered** (deleted, trumped,
+nuked) and remove them. NiceGUI web UI, *arr-style API.
 
 Built to mirror qbit_manage's `rem_unregistered` behaviour for Deluge. The
 `delugearr` package also hosts the scanning/scheduling backend, so further
@@ -28,12 +27,11 @@ Deluge management features can be added.
 
 ```bash
 git clone https://github.com/SavageCore/delugearr && cd delugearr
-python -m venv venv && . venv/bin/activate
-pip install .
-CONFIG_PATH=./config AUTH_USER=admin AUTH_PASSWORD='choose-one' python -m delugearr
+uv sync
+CONFIG_PATH=./config AUTH_USER=admin AUTH_PASSWORD='choose-one' uv run python -m delugearr
 ```
 
-Open `http://127.0.0.1:11012/delugearr`, log in, and point it at Deluge in
+Open `http://127.0.0.1:11012`, log in, and point it at Deluge in
 **Settings** (URL and Web UI password, defaults to `http://127.0.0.1:8112`).
 Scan interval, dry run and exclusions are all editable there too.
 
@@ -41,8 +39,9 @@ Scan interval, dry run and exclusions are all editable there too.
   and the session secret.
 - `AUTH_USER` / `AUTH_PASSWORD` are the web UI login. Set them: without a
   password nobody can log in.
-- The server listens on `127.0.0.1:11012`. Set `HOST=0.0.0.0` to expose it on
-  the network, or leave it local and put a reverse proxy in front.
+- The server listens on `127.0.0.1:11012` at the root path. Set `HOST=0.0.0.0`
+  to expose it on the network, or leave it local and put a reverse proxy in
+  front. To serve it under a sub-path (e.g. `/delugearr`), set `BASE_PATH`.
 - `config.example` lists every environment variable. They seed the initial
   settings; after first run the UI is the source of truth.
 
@@ -74,13 +73,14 @@ immediately.
 
 ```bash
 KEY=your-api-key
-curl -H "X-Api-Key: $KEY" http://127.0.0.1:11012/delugearr/api/status
-curl -X POST -H "X-Api-Key: $KEY" http://127.0.0.1:11012/delugearr/api/scan
-curl http://127.0.0.1:11012/delugearr/api/health   # liveness, no key
+curl -H "X-Api-Key: $KEY" http://127.0.0.1:11012/api/status
+curl -X POST -H "X-Api-Key: $KEY" http://127.0.0.1:11012/api/scan
+curl http://127.0.0.1:11012/api/health   # liveness, no key
 ```
 
-Interactive spec at `/delugearr/api/docs`, machine-readable spec (for MCP
-clients) at `/delugearr/api/openapi.json`.
+Interactive spec at `/api/docs`, machine-readable spec (for MCP
+clients) at `/api/openapi.json`. The `/api` prefix is relative to the mount
+path: at the root by default, or under `BASE_PATH` when set.
 
 Endpoints: `health`, `status`, `scan`, `detections` (latest run plus filters),
 `history`, `torrents/{hash}/remove`, `torrents/{hash}/exempt`, `exempt`
@@ -91,10 +91,9 @@ URLs are redacted).
 ## Development
 
 ```bash
-python -m venv venv && . venv/bin/activate
-pip install -e ".[dev]"
-make lint           # ruff check + format --check
-make test           # pytest
+uv sync --dev
+uv run make lint           # ruff check + format --check
+uv run make test           # pytest
 make install-hooks  # lefthook git hooks (lint + conventional commits)
 ```
 

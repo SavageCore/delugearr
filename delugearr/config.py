@@ -73,7 +73,7 @@ def storage_secret():
 
 
 def base_path():
-    return env("BASE_PATH", "/delugearr").rstrip("/")
+    return env("BASE_PATH", "").rstrip("/")
 
 
 def host():
