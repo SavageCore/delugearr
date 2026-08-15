@@ -1,6 +1,7 @@
 """Scan cycle: fetch torrents, detect unregistered, (dry-run) remove."""
 
 import logging
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -26,6 +27,13 @@ ACTIVE_STATES = {
     "Queued",
     "Endgame",
 }
+
+# nanoid-style alphabet (64 URL-safe chars), same size as a default nanoid.
+_NANOID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz-"
+
+
+def _nanoid(size=21):
+    return "".join(secrets.choice(_NANOID_ALPHABET) for _ in range(size))
 
 
 def _path_under(path, parent):
@@ -112,7 +120,7 @@ class Scanner:
         settings = self.store.get_settings()
         if dry_run is None:
             dry_run = bool(settings["dry_run"])
-        run_id = run_id or time.strftime("%Y%m%d-%H%M%S")
+        run_id = run_id or _nanoid()
         stats = {
             "total": 0,
             "unregistered": 0,
@@ -262,7 +270,7 @@ class Scanner:
             ),
         )
         self.store.log_detection(
-            run_id=f"manual-{time.strftime('%Y%m%d-%H%M%S')}",
+            run_id=f"manual-{_nanoid()}",
             torrent=torrent,
             message=torrent.get("tracker_status") or "manual removal",
             status="unregistered",

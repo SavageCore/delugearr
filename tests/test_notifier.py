@@ -60,9 +60,9 @@ def test_summary_title_uses_discord_timestamp(post):
 
 def test_summary_title_falls_back_to_raw_run_id(post):
     n = DiscordNotifier("https://discord/hook")
-    n.send_summary({"dry_run": True}, "manual-foo", [], [])
+    n.send_summary({"dry_run": True}, "aB3_xY9_zQw", [], [])
     title = post[0]["json"]["embeds"][0]["title"]
-    assert title.startswith("Scan manual-foo")
+    assert title.startswith("Scan aB3_xY9_zQw")
     assert "<t:" not in title
 
 
