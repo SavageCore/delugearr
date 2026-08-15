@@ -124,9 +124,6 @@ class Scanner:
             "skipped_limit": 0,
             "removed": 0,
             "removed_nodata": 0,
-            "would_remove": 0,
-            "would_remove_nodata": 0,
-            "errors": 0,
             "dry_run": bool(dry_run),
             "seconds": 0.0,
         }
@@ -137,7 +134,6 @@ class Scanner:
         except DelugeError as exc:
             self.deluge_ok = False
             self.last_error = str(exc)
-            stats["errors"] += 1
             log.error("Deluge unreachable: %s", exc)
             self._fan_out("errors", lambda n, exc=exc: n.send_error(str(exc)))
             self.store.update_settings(
@@ -211,10 +207,6 @@ class Scanner:
 
             if dry_run:
                 action = "would_remove_only" if keep_data else "would_remove_data"
-                if keep_data:
-                    stats["would_remove_nodata"] += 1
-                else:
-                    stats["would_remove"] += 1
                 record(torrent, message, status, action, True)
                 continue
 
@@ -222,7 +214,6 @@ class Scanner:
                 self.client.remove_torrents([torrent_hash], remove_data=not keep_data)
             except DelugeError as exc:
                 log.error("Failed removing %s (%s): %s", torrent.get("name"), torrent_hash, exc)
-                stats["errors"] += 1
                 record(torrent, message, status, "error", False)
                 continue
             if keep_data:

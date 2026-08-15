@@ -98,29 +98,14 @@ class DiscordNotifier:
         n = int(stats.get("unregistered", 0))
         color = COLOR_DRY if dry_run else COLOR_LIVE
 
-        fields = []
-        if dry_run:
-            fields.append({"name": "Mode", "value": "DRY RUN, nothing was removed", "inline": True})
-            fields.append(
-                {
-                    "name": "Would remove",
-                    "value": f"{stats.get('would_remove', 0)} + data / "
-                    f"{stats.get('would_remove_nodata', 0)} keep",
-                    "inline": True,
-                }
-            )
-        else:
-            fields.append({"name": "Mode", "value": "LIVE, removals executed", "inline": True})
-            fields.append(
-                {
-                    "name": "Removed",
-                    "value": f"{stats.get('removed', 0)} + data / {stats.get('removed_nodata', 0)} keep",
-                    "inline": True,
-                }
-            )
-        fields.append({"name": "Total", "value": f"{stats.get('total', 0)}", "inline": True})
+        fields = [
+            {
+                "name": "Mode",
+                "value": "DRY RUN, nothing was removed" if dry_run else "LIVE, removals executed",
+                "inline": True,
+            }
+        ]
         fields.append({"name": "Unregistered", "value": f"{n}", "inline": True})
-        fields.append({"name": "Errors", "value": f"{stats.get('errors', 0)}", "inline": True})
 
         if tracker_breakdown:
             lines = [f"{tracker or 'unknown'}: {count}" for tracker, count in tracker_breakdown]
@@ -137,7 +122,7 @@ class DiscordNotifier:
         payload = self._payload(
             embeds=[
                 {
-                    "title": f"Scan {_discord_ts(run_id)}: {n} unregistered",
+                    "title": f"Scan {_discord_ts(run_id)}",
                     "color": color,
                     "fields": fields,
                 }

@@ -30,3 +30,5 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+
+.opencode/opencode.json

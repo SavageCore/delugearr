@@ -31,9 +31,6 @@ def test_summary_omits_overrides_when_unset(post):
         "total": 426,
         "unregistered": 426,
         "transient": 0,
-        "errors": 0,
-        "would_remove": 400,
-        "would_remove_nodata": 26,
     }
     ok = n.send_summary(stats, "20260101-000000", [{"name": "A.Release.1"}], [("trk", 426)], max_items=25)
     assert ok
@@ -41,7 +38,6 @@ def test_summary_omits_overrides_when_unset(post):
     assert "username" not in body
     assert "avatar_url" not in body
     embed = body["embeds"][0]
-    assert "426 unregistered" in embed["title"]
     assert "<t:" in embed["title"]
     assert embed["color"] == notifier.COLOR_DRY
     fields = {f["name"]: f["value"] for f in embed["fields"]}
