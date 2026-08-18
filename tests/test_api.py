@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from delugearr import config
 from delugearr.api import build_router
-from delugearr.notifier import DiscordNotifier
+from delugearr.notifier import DiscordNotifier, NtfyNotifier
 from delugearr.store import Store
 
 
@@ -283,3 +283,71 @@ def test_notification_test_requires_key_and_missing_returns_404(api):
     headers = {"X-Api-Key": key}
     assert client.post("/delugearr/api/notifications/1/test").status_code == 401
     assert client.post("/delugearr/api/notifications/999/test", headers=headers).status_code == 404
+
+
+def test_ntfy_notification_crud_and_redaction(api, monkeypatch):
+    monkeypatch.setattr(NtfyNotifier, "send_test", lambda self: True)
+    client, store = api
+    key = store.api_key()
+    headers = {"X-Api-Key": key}
+
+    created = client.post(
+        "/delugearr/api/notifications",
+        headers=headers,
+        json={
+            "name": "Phone",
+            "type": "ntfy",
+            "webhook_url": "https://ntfy.sh/delugearr",
+            "access_token": "tk_secret",
+            "triggers": ["scan_summary", "errors"],
+        },
+    ).json()
+    assert created["type"] == "ntfy"
+    assert created["webhook_url"] == "***"
+    assert created["access_token"] == "***"
+    cid = created["id"]
+
+    raw = store.list_notifications()[0]
+    assert raw["type"] == "ntfy"
+    assert raw["webhook_url"] == "https://ntfy.sh/delugearr"
+    assert raw["access_token"] == "tk_secret"
+
+    listed = client.get("/delugearr/api/notifications", headers=headers).json()["rows"][0]
+    assert listed["access_token"] == "***"
+
+    assert client.post(f"/delugearr/api/notifications/{cid}/test", headers=headers).json() == {"sent": True}
+    assert client.delete(f"/delugearr/api/notifications/{cid}", headers=headers).status_code == 200
+
+
+def test_ntfy_save_verifies_with_ntfy_notifier(api, monkeypatch):
+    sent = []
+    monkeypatch.setattr(NtfyNotifier, "send_test", lambda self: (sent.append(self), True)[1])
+    monkeypatch.setattr(
+        DiscordNotifier,
+        "send_test",
+        lambda self: (_ for _ in ()).throw(AssertionError("should not call discord")),
+    )
+    client, store = api
+    key = store.api_key()
+    headers = {"X-Api-Key": key}
+
+    resp = client.post(
+        "/delugearr/api/notifications",
+        headers=headers,
+        json={"name": "Phone", "type": "ntfy", "webhook_url": "https://ntfy.sh/delugearr"},
+    )
+    assert resp.status_code == 200
+    assert len(sent) == 1
+
+
+def test_notification_default_type_is_discord(api, monkeypatch):
+    monkeypatch.setattr(DiscordNotifier, "send_test", lambda self: True)
+    client, store = api
+    key = store.api_key()
+    headers = {"X-Api-Key": key}
+    created = client.post(
+        "/delugearr/api/notifications",
+        headers=headers,
+        json={"name": "Discord", "webhook_url": "https://discord/hook"},
+    ).json()
+    assert created["type"] == "discord"

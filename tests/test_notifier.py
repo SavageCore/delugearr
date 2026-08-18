@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 
 from delugearr import notifier
-from delugearr.notifier import DiscordNotifier
+from delugearr.notifier import DiscordNotifier, NtfyNotifier, make_notifier
 
 
 @pytest.fixture
@@ -148,3 +148,100 @@ def test_send_test_probe(post):
     body = post[0]["json"]
     assert body["username"] == "Bot"
     assert body["content"] == "delugearr test notification"
+
+
+# ---- ntfy -----------------------------------------------------------------
+
+
+@pytest.fixture
+def ntfy_post(monkeypatch):
+    calls = []
+
+    class FakeResp:
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, data=None, headers=None, timeout=10):
+        calls.append({"url": url, "data": data, "headers": headers or {}})
+        return FakeResp()
+
+    monkeypatch.setattr(notifier.requests, "post", fake_post)
+    return calls
+
+
+def test_ntfy_summary_payload(ntfy_post):
+    n = NtfyNotifier("https://ntfy.sh/delugearr")
+    stats = {"dry_run": True, "unregistered": 3}
+    sample = [{"torrent": {"name": "A.Release.1", "hash": "abcd1234", "seeding_time": 3600, "ratio": 1.5}}]
+    assert n.send_summary(stats, "20260815-010539", sample, max_items=25) is True
+    req = ntfy_post[0]
+    assert req["url"] == "https://ntfy.sh/delugearr"
+    # Body is plain-text Markdown (never a JSON payload) so ntfy renders it.
+    assert req["data"].startswith("**") or req["data"].startswith("DRY")
+    assert not req["data"].lstrip().startswith("{")
+    # All metadata travels as headers, not a JSON body.
+    assert "json" not in req
+    assert req["headers"]["Title"] == "Scan 20260815-010539"
+    assert req["headers"]["Priority"] == str(notifier.NTFY_PRIO_DEFAULT)  # dry run
+    assert "A.Release.1" in req["data"]
+    assert "Unregistered: 3" in req["data"]
+    assert "DRY RUN" in req["data"]
+
+
+def test_ntfy_summary_live_raises_priority(ntfy_post):
+    n = NtfyNotifier("https://ntfy.sh/delugearr")
+    n.send_summary({"dry_run": False, "unregistered": 1}, "run1", [], max_items=0)
+    assert ntfy_post[0]["headers"]["Priority"] == str(notifier.NTFY_PRIO_HIGH)
+
+
+def test_ntfy_summary_click_url(ntfy_post):
+    n = NtfyNotifier("https://ntfy.sh/delugearr")
+    n.send_summary({"dry_run": True}, "run1", [], run_url="https://x/run/1", max_items=0)
+    req = ntfy_post[0]
+    assert req["headers"]["Click"] == "https://x/run/1"
+    assert "Details: https://x/run/1" in req["data"]
+
+
+def test_ntfy_sends_bearer_token(ntfy_post):
+    n = NtfyNotifier("https://ntfy.example.com/delugearr", access_token="tk_secret")
+    n.send_test()
+    req = ntfy_post[0]
+    assert req["headers"]["Authorization"] == "Bearer tk_secret"
+    assert req["data"] == "delugearr test notification"
+
+
+def test_ntfy_error_uses_urgent_and_warning_tag(ntfy_post):
+    n = NtfyNotifier("https://ntfy.sh/delugearr")
+    n.send_error("boom")
+    req = ntfy_post[0]
+    assert req["headers"]["Priority"] == str(notifier.NTFY_PRIO_URGENT)
+    assert req["headers"]["Tags"] == "warning"
+    assert "boom" in req["data"]
+
+
+def test_ntfy_removal_tag_depends_on_data(ntfy_post):
+    n = NtfyNotifier("https://ntfy.sh/delugearr")
+    n.send_removal("X", remove_data=True)
+    assert ntfy_post[0]["headers"]["Tags"] == "tada"
+    n.send_removal("Y", remove_data=False)
+    assert ntfy_post[1]["headers"]["Tags"] == "mute"
+
+
+def test_ntfy_exception_is_swallowed(ntfy_post, monkeypatch):
+    def boom(url, data=None, headers=None, timeout=10):
+        raise notifier.requests.ConnectionError("down")
+
+    monkeypatch.setattr(notifier.requests, "post", boom)
+    n = NtfyNotifier("https://ntfy.sh/delugearr")
+    assert n.send_test() is False
+
+
+def test_make_notifier_dispatches_by_type():
+    assert isinstance(
+        make_notifier({"type": "ntfy", "webhook_url": "https://ntfy.sh/x", "access_token": "t"}), NtfyNotifier
+    )
+    assert isinstance(
+        make_notifier({"type": "discord", "webhook_url": "https://discord/hook"}), DiscordNotifier
+    )
+    # missing type defaults to discord (back-compat)
+    assert isinstance(make_notifier({"webhook_url": "https://discord/hook"}), DiscordNotifier)

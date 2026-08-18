@@ -10,14 +10,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.11"
+          enable-cache: true
       - name: Install
-        run: pip install -e ".[dev]"
+        run: uv sync --all-groups --frozen
       - name: Ruff check
-        run: ruff check .
+        run: uv run ruff check .
       - name: Ruff format
-        run: ruff format --check .
+        run: uv run ruff format --check .
       - name: Pytest
-        run: pytest
+        run: uv run pytest

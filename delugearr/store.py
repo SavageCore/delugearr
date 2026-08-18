@@ -70,13 +70,15 @@ CREATE TABLE IF NOT EXISTS exempt (
     added_ts     REAL
 );
 CREATE TABLE IF NOT EXISTS notification_connections (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    webhook_url TEXT,
-    username    TEXT,
-    avatar      TEXT,
-    triggers    TEXT,
-    enabled     INTEGER DEFAULT 1
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL,
+    type         TEXT DEFAULT 'discord',
+    webhook_url  TEXT,
+    username     TEXT,
+    avatar       TEXT,
+    access_token TEXT,
+    triggers     TEXT,
+    enabled      INTEGER DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_detections_ts   ON detections(ts);
 CREATE INDEX IF NOT EXISTS idx_detections_run  ON detections(run_id);
@@ -122,6 +124,15 @@ class Store:
         ):
             if name not in columns:
                 con.execute(f"ALTER TABLE detections ADD COLUMN {name} {definition}")
+        notif_cols = {
+            col["name"] for col in con.execute("PRAGMA table_info(notification_connections)").fetchall()
+        }
+        for name, definition in (
+            ("type", "TEXT DEFAULT 'discord'"),
+            ("access_token", "TEXT"),
+        ):
+            if name not in notif_cols:
+                con.execute(f"ALTER TABLE notification_connections ADD COLUMN {name} {definition}")
 
     def _run(self, fn):
         with self._lock:
@@ -369,21 +380,45 @@ class Store:
         return self._run(fn)
 
     def current_detections(self):
-        """Latest scan's detections minus torrents already handled by hand.
+        """Latest scan's detections minus torrents already handled.
 
         Matches what the dashboard shows: the newest (non-manual) run, with
-        manually-removed and exempted hashes filtered out.
+        exempted hashes and any torrent already removed (by a scan run or by
+        hand, so it lives in history) filtered out. Only still-pending
+        (would_remove_*) detections remain actionable.
         """
         latest = self.latest_run()
         if not latest:
             return []
-        removed = self.manual_removed_hashes()
+        removed = self.handled_hashes()
         exempt = self.exempt_hashes()
         return [
             det
             for det in self.get_run_detections(latest["run_id"])
             if det["torrent_hash"] not in removed and det["torrent_hash"] not in exempt
         ]
+
+    def handled_hashes(self):
+        """Hashes whose most recent action was a removal (scan or manual).
+
+        Removed torrents are gone from Deluge and belong in history, so the
+        dashboard hides them rather than re-listing them from the latest run's
+        snapshot.
+        """
+
+        def fn(con):
+            return {
+                r["torrent_hash"]
+                for r in con.execute(
+                    "SELECT torrent_hash FROM detections "
+                    "WHERE ts = (SELECT MAX(d2.ts) FROM detections d2 "
+                    "             WHERE d2.torrent_hash = detections.torrent_hash) "
+                    "AND action IN ('removed_data', 'removed_only', "
+                    "                'manual_removed_data', 'manual_removed_only')"
+                )
+            }
+
+        return self._run(fn)
 
     # ---- exempt ---------------------------------------------------------
     def add_exempt(self, torrent_hash, reason=""):
@@ -420,9 +455,11 @@ class Store:
         return {
             "id": row["id"],
             "name": row["name"],
+            "type": row["type"] or "discord",
             "webhook_url": row["webhook_url"] or "",
             "username": row["username"] or "",
             "avatar": row["avatar"] or "",
+            "access_token": row["access_token"] or "",
             "triggers": json.loads(row["triggers"]) if row["triggers"] else [],
             "enabled": bool(row["enabled"]),
         }
@@ -434,16 +471,28 @@ class Store:
 
         return self._run(fn)
 
-    def add_notification(self, name, webhook_url="", username="", avatar="", triggers=None, enabled=True):
+    def add_notification(
+        self,
+        name,
+        webhook_url="",
+        type="discord",
+        username="",
+        avatar="",
+        access_token="",
+        triggers=None,
+        enabled=True,
+    ):
         def fn(con):
             con.execute(
-                "INSERT INTO notification_connections(name,webhook_url,username,avatar,triggers,enabled) "
-                "VALUES(?,?,?,?,?,?)",
+                "INSERT INTO notification_connections(name,type,webhook_url,username,avatar,access_token,triggers,enabled) "
+                "VALUES(?,?,?,?,?,?,?,?)",
                 (
                     name,
+                    type or "discord",
                     webhook_url,
                     username,
                     avatar,
+                    access_token,
                     json.dumps(list(triggers or [])),
                     int(bool(enabled)),
                 ),
@@ -463,24 +512,30 @@ class Store:
             current = self._connection_row(row)
             if "name" in fields:
                 current["name"] = fields["name"]
+            if "type" in fields:
+                current["type"] = fields["type"] or "discord"
             if "webhook_url" in fields:
                 current["webhook_url"] = fields["webhook_url"]
             if "username" in fields:
                 current["username"] = fields["username"]
             if "avatar" in fields:
                 current["avatar"] = fields["avatar"]
+            if "access_token" in fields:
+                current["access_token"] = fields["access_token"]
             if "triggers" in fields:
                 current["triggers"] = list(fields["triggers"] or [])
             if "enabled" in fields:
                 current["enabled"] = bool(fields["enabled"])
             con.execute(
-                "UPDATE notification_connections SET name=?,webhook_url=?,username=?,avatar=?,triggers=?,enabled=? "
+                "UPDATE notification_connections SET name=?,type=?,webhook_url=?,username=?,avatar=?,access_token=?,triggers=?,enabled=? "
                 "WHERE id=?",
                 (
                     current["name"],
+                    current["type"],
                     current["webhook_url"],
                     current["username"],
                     current["avatar"],
+                    current["access_token"],
                     json.dumps(current["triggers"]),
                     int(current["enabled"]),
                     cid,

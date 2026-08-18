@@ -8,7 +8,7 @@ from nicegui import app, events, run, ui
 
 from . import config
 from .deluge_client import DelugeClient
-from .notifier import DEFAULT_AVATAR, DiscordNotifier, fmt_ratio, fmt_seeding
+from .notifier import DEFAULT_AVATAR, fmt_ratio, fmt_seeding, make_notifier
 
 log = logging.getLogger("delugearr-ui")
 
@@ -728,8 +728,8 @@ def notifications_card(store):
     with ui.card().classes("w-full max-w-3xl mt-4"):
         ui.label("Notifications").classes("text-lg font-bold")
         ui.label(
-            "Send Discord webhooks for the events you choose. Summary messages are "
-            "capped to one per scan so a big cleanup never floods the channel."
+            "Send notifications via Discord webhooks or ntfy for the events you choose. "
+            "Summary messages are capped to one per scan so a big cleanup never floods the channel."
         ).classes("text-sm text-grey")
 
         cap = ui.number(
@@ -755,17 +755,27 @@ def notifications_card(store):
 
         def open_dialog(conn):
             edit = conn is not None
-            conn = conn or {"name": "", "webhook_url": "", "username": "", "avatar": "", "triggers": []}
+            conn = conn or {
+                "name": "",
+                "type": "discord",
+                "webhook_url": "",
+                "username": "",
+                "avatar": "",
+                "access_token": "",
+                "triggers": [],
+            }
             dialog = ui.dialog()
             with dialog, ui.card().classes("w-96"):
                 ui.label("Edit connection" if edit else "Add connection").classes("text-lg font-bold")
                 name = ui.input("Name", value=conn.get("name") or "").classes("w-full")
-                webhook = (
-                    ui.input("Webhook URL", value=conn.get("webhook_url") or "")
-                    .props('hint="Create a webhook in your Discord server and paste its URL here."')
-                    .classes("w-full")
-                )
-                ui.link(
+                conn_type = ui.select(
+                    {"discord": "Discord", "ntfy": "ntfy"},
+                    label="Type",
+                    value=conn.get("type") or "discord",
+                ).classes("w-full")
+
+                webhook = ui.input("Webhook URL", value=conn.get("webhook_url") or "").classes("w-full")
+                webhook_link = ui.link(
                     "How to create a Discord webhook",
                     "https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks",
                     new_tab=True,
@@ -782,6 +792,11 @@ def notifications_card(store):
                     )
                     .classes("w-full")
                 )
+                access_token = (
+                    ui.input("Access token (optional)", value=conn.get("access_token") or "")
+                    .props('hint="Required only if your ntfy server requires auth. Sent as a Bearer token."')
+                    .classes("w-full")
+                )
                 ui.label("Select which events should trigger this notification").classes(
                     "text-sm font-medium pt-2"
                 )
@@ -796,12 +811,35 @@ def notifications_card(store):
                     ui.button("Save", color="primary", on_click=lambda: save(dialog, conn))
             dialog.open()
 
+            def apply_type(kind):
+                """Re-label/hide fields depending on the selected channel type."""
+                discord = kind == "discord"
+                webhook.props(
+                    f'hint="{"Create a webhook in your Discord server and paste its URL here." if discord else "Paste your ntfy topic publish URL, e.g. https://ntfy.sh/mytopic."}"'
+                )
+                webhook_link.set_visibility(discord)
+                username.set_visibility(discord)
+                avatar.set_visibility(discord)
+                access_token.set_visibility(not discord)
+
+            apply_type(conn_type.value)
+            conn_type.on_value_change(lambda e: apply_type(e.value))
+
             def invalidate():
                 result_label.text = "Webhook details changed"
                 result_label.classes(replace="text-sm text-grey")
 
-            for field in (webhook, username, avatar):
+            for field in (webhook, username, avatar, access_token):
                 field.on_value_change(lambda _e: invalidate())
+
+            def build_conn():
+                return {
+                    "type": conn_type.value,
+                    "webhook_url": (webhook.value or "").strip(),
+                    "username": username.value,
+                    "avatar": avatar.value,
+                    "access_token": (access_token.value or "").strip(),
+                }
 
             def run_test():
                 url = (webhook.value or "").strip()
@@ -821,16 +859,18 @@ def notifications_card(store):
                 test_btn.enable()
 
             def verify_webhook():
-                url = (webhook.value or "").strip()
+                data = build_conn()
+                if not data["webhook_url"]:
+                    return False
                 try:
-                    return DiscordNotifier(url, username.value, avatar.value).send_test()
+                    return make_notifier(data).send_test()
                 except Exception as exc:
                     log.warning("notification test failed: %s", exc)
                     return False
 
             def save(dialog, conn):
-                url = (webhook.value or "").strip()
-                if not url:
+                data = build_conn()
+                if not data["webhook_url"]:
                     ui.notify("Webhook URL required to save", type="warning")
                     return
                 if not verify_webhook():
@@ -838,17 +878,19 @@ def notifications_card(store):
                     result_label.classes(replace="text-sm text-negative")
                     ui.notify("Connection failed verification - not saved", type="negative")
                     return
-                data = {
-                    "name": name.value or "Discord",
-                    "webhook_url": url,
-                    "username": username.value,
-                    "avatar": avatar.value,
+                payload = {
+                    "name": name.value or data["type"],
+                    "type": data["type"],
+                    "webhook_url": data["webhook_url"],
+                    "username": data["username"],
+                    "avatar": data["avatar"],
+                    "access_token": data["access_token"],
                     "triggers": [t for t, s in toggles.items() if s.value],
                 }
                 if edit:
-                    store.update_notification(conn["id"], **data)
+                    store.update_notification(conn["id"], **payload)
                 else:
-                    store.add_notification(**data)
+                    store.add_notification(**payload)
                 dialog.close()
                 refresh_list()
                 ui.notify("Saved", type="positive")
@@ -865,6 +907,9 @@ def notifications_card(store):
                 enabled = ui.switch(value=conn["enabled"]).props("dense")
                 enabled.on_value_change(lambda e, c=conn["id"]: store.update_notification(c, enabled=e.value))
                 ui.label(conn["name"] or "(unnamed)").classes("flex-1")
+                ui.badge(conn.get("type") or "discord").classes("text-xs").props("outline").tooltip(
+                    conn.get("type") or "discord"
+                )
                 ui.button(icon="edit").props("flat size=sm").tooltip("Edit").on(
                     "click", lambda c=conn: open_dialog(c)
                 )

@@ -11,18 +11,19 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.11"
+          enable-cache: true
       - name: Install
-        run: pip install -e ".[dev]"
+        run: uv sync --all-groups --frozen
       - name: Lint + test
         run: |
-          ruff check .
-          ruff format --check .
-          pytest
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest
       - name: Build release
-        run: python -m pip wheel . -w dist
+        run: uv build -o dist
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:

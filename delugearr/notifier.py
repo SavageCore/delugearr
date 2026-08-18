@@ -1,9 +1,10 @@
-"""Discord webhook notifications for delugearr.
+"""Notification channels (Discord webhooks and ntfy) for delugearr.
 
-Connections (webhooks) are configured in the UI/API and fan out per event
-trigger. Each webhook may override the default bot name and avatar. To avoid
-spam, scans emit a single capped summary message rather than one per torrent;
-the per-removal trigger is optional and still capped per scan.
+Connections are configured in the UI/API and fan out per event trigger.
+``make_notifier`` dispatches to ``DiscordNotifier`` or ``NtfyNotifier`` based
+on the connection's ``type``. Each may override channel-specific defaults. To
+avoid spam, scans emit a single capped summary message rather than one per
+torrent; the per-removal trigger is optional and still capped per scan.
 """
 
 import logging
@@ -194,3 +195,133 @@ def fmt_ratio(ratio):
     except (TypeError, ValueError):
         return "-"
     return f"{value:.2f}".rstrip("0").rstrip(".") or "0"
+
+
+# ---- ntfy ------------------------------------------------------------------
+
+# ntfy priority integers: 1=min, 2=low, 3=default, 4=high, 5=urgent.
+NTFY_PRIO_DEFAULT = 3
+NTFY_PRIO_HIGH = 4
+NTFY_PRIO_URGENT = 5
+
+
+class NtfyNotifier:
+    """ntfy.sh / self-hosted push notifier.
+
+    The connection's ``webhook_url`` is the full publish URL (topic in the
+    path), e.g. ``https://ntfy.sh/mytopic``. An optional ``access_token`` is
+    sent as a Bearer Authorization header when the server requires auth.
+    """
+
+    def __init__(self, topic_url, access_token=None):
+        self.topic_url = topic_url
+        self.access_token = access_token or ""
+
+    def _payload(self, message, **kwargs):
+        payload = {"message": message, "priority": NTFY_PRIO_DEFAULT}
+        for k, v in kwargs.items():
+            if v is not None and v != "":
+                payload[k] = v
+        return payload
+
+    def _post(self, payload):
+        # ntfy publishes the message as a plain-text body with metadata as
+        # HTTP headers (Title/Priority/Tags/Click). JSON-publishing requires a
+        # body with a "topic" field posted to the server root; posting a JSON
+        # body to the topic path makes the client show the raw JSON instead.
+        headers = {"Priority": str(payload.get("priority", NTFY_PRIO_DEFAULT))}
+        if payload.get("title"):
+            headers["Title"] = payload["title"]
+        if payload.get("tags"):
+            headers["Tags"] = ",".join(payload["tags"])
+        if payload.get("click"):
+            headers["Click"] = payload["click"]
+        # Messages carry Markdown (**bold**, `code`), so ask ntfy to render it.
+        headers["Content-Type"] = "text/markdown"
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        resp = requests.post(self.topic_url, data=payload["message"], headers=headers, timeout=10)
+        resp.raise_for_status()
+        return True
+
+    def _send(self, payload):
+        """Send and log; returns bool so callers can decide on failures."""
+        try:
+            self._post(payload)
+            return True
+        except requests.RequestException as exc:
+            log.error("ntfy publish failed: %s", exc)
+            return False
+
+    # ---- individual messages --------------------------------------------
+    def send_error(self, message):
+        payload = self._payload(
+            f"**Delugearr error**\n{message}",
+            title="Delugearr error",
+            priority=NTFY_PRIO_URGENT,
+            tags=["warning"],
+        )
+        return self._send(payload)
+
+    def send_manual(self, action, name, remove_data):
+        verb = "Removed" if remove_data else "Removed torrent (kept data)"
+        payload = self._payload(
+            f"{verb} `{name}` ({action})",
+            title=verb,
+            priority=NTFY_PRIO_DEFAULT,
+        )
+        return self._send(payload)
+
+    def send_test(self):
+        """Send a tiny probe message; used to verify a topic before saving."""
+        payload = self._payload("delugearr test notification", title="Delugearr")
+        return self._send(payload)
+
+    def send_removal(self, name, label="", tracker="", message="", remove_data=True):
+        verb = "Removed + data" if remove_data else "Removed (kept data)"
+        parts = [f"**{verb}** `{name}`"]
+        if label:
+            parts.append(f"Label: {label}")
+        if tracker:
+            parts.append(f"Tracker: {tracker}")
+        if message:
+            parts.append(f"Message: {message}")
+        payload = self._payload(
+            "\n".join(parts), title=verb, priority=NTFY_PRIO_HIGH, tags=["tada"] if remove_data else ["mute"]
+        )
+        return self._send(payload)
+
+    # ---- scan summary ----------------------------------------------------
+    def send_summary(self, stats, run_id, sample, run_url="", max_items=25):
+        dry_run = bool(stats.get("dry_run", True))
+        n = int(stats.get("unregistered", 0))
+
+        lines = [
+            ("DRY RUN, nothing was removed" if dry_run else "LIVE, removals executed"),
+            f"Unregistered: {n}",
+        ]
+        listed, more = _chunk_torrents(sample, max_items)
+        if listed:
+            lines.append("")
+            lines.append(listed)
+        if more:
+            lines.append(f"+{more} more")
+        lines.append(f"Run: `{run_id}`")
+        if run_url:
+            lines.append(f"Details: {run_url}")
+
+        payload = self._payload(
+            "\n".join(lines),
+            title=f"Scan {run_id}",
+            priority=NTFY_PRIO_HIGH if not dry_run else NTFY_PRIO_DEFAULT,
+            tags=["mag"] if not dry_run else ["eyes"],
+            click=run_url or None,
+        )
+        return self._send(payload)
+
+
+def make_notifier(conn):
+    """Return the notifier matching a connection's ``type``."""
+    if conn.get("type") == "ntfy":
+        return NtfyNotifier(conn.get("webhook_url", ""), conn.get("access_token"))
+    return DiscordNotifier(conn.get("webhook_url", ""), conn.get("username"), conn.get("avatar"))

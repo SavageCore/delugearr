@@ -9,7 +9,7 @@ from pathlib import Path
 from . import config
 from .deluge_client import DelugeClient, DelugeError
 from .detector import classify_torrent
-from .notifier import DiscordNotifier
+from .notifier import make_notifier
 from .store import Store
 
 log = logging.getLogger("scanner")
@@ -85,13 +85,13 @@ class Scanner:
         for conn in self.store.enabled_connections(trigger):
             if not conn.get("webhook_url"):
                 continue
-            notifier = DiscordNotifier(conn["webhook_url"], conn.get("username"), conn.get("avatar"))
+            notifier = make_notifier(conn)
 
             def run(n=notifier, b=build, c=conn):
                 try:
                     b(n)
                 except Exception:
-                    log.exception("discord notification failed (%s)", c.get("name"))
+                    log.exception("notification failed (%s)", c.get("name"))
 
             threading.Thread(target=run, daemon=True).start()
 

@@ -192,6 +192,64 @@ def test_notification_connection_crud(tmp_path):
     assert store.list_notifications() == [store.list_notifications()[0]]
 
 
+def test_notification_ntfy_type_and_access_token_roundtrip(tmp_path):
+    store = make_store(tmp_path)
+    conn = store.add_notification(
+        "Phone",
+        "https://ntfy.sh/delugearr",
+        type="ntfy",
+        access_token="tk_secret",
+        triggers=["errors"],
+    )
+    assert conn["type"] == "ntfy"
+    assert conn["access_token"] == "tk_secret"
+    assert conn["webhook_url"] == "https://ntfy.sh/delugearr"
+
+    assert store.enabled_connections("errors") == [conn]
+
+    store.update_notification(conn["id"], access_token="tk_new", webhook_url="https://ntfy.sh/other")
+    updated = store.list_notifications()[0]
+    assert updated["access_token"] == "tk_new"
+    assert updated["webhook_url"] == "https://ntfy.sh/other"
+    assert updated["type"] == "ntfy"
+
+
+def test_notification_legacy_db_migrates_type_to_discord(tmp_path):
+    """A DB created before the type/access_token columns must default to discord."""
+    import sqlite3
+
+    db = tmp_path / "app.db"
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+        INSERT INTO settings(key,value) VALUES('api_key','"oldkey"');
+        CREATE TABLE notification_connections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            webhook_url TEXT,
+            username TEXT,
+            avatar TEXT,
+            triggers TEXT,
+            enabled INTEGER DEFAULT 1
+        );
+        INSERT INTO notification_connections(name,webhook_url,triggers,enabled)
+        VALUES('Discord','https://discord/hook','["errors"]',1);
+        """
+    )
+    con.commit()
+    con.close()
+
+    store = Store(db, defaults={"api_key": "oldkey"})
+    conn = store.list_notifications()[0]
+    assert conn["type"] == "discord"
+    assert conn["access_token"] == ""
+    assert conn["enabled"] is True
+    # new ntfy connection works on the migrated schema
+    ntfy = store.add_notification("Phone", "https://ntfy.sh/x", type="ntfy", access_token="t")
+    assert ntfy["type"] == "ntfy"
+
+
 def test_notify_max_items_default(tmp_path):
     store = make_store(tmp_path)
     assert store.get_settings()["notify_max_items"] == 25
