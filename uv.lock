@@ -386,7 +386,7 @@ dependencies = [
     { name = "requests" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -396,12 +396,15 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "nicegui", specifier = "==3.16.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = "==9.1.1" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = "==1.4.0" },
     { name = "requests", specifier = "==2.34.2" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.3" },
 ]
-provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest-asyncio", specifier = "==1.4.0" },
+    { name = "ruff", specifier = "==0.16.3" },
+]
 
 [[package]]
 name = "docutils"
