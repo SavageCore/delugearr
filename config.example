@@ -21,9 +21,10 @@ AUTH_PASSWORD=CHANGE_ME
 # JSON list of paths whose data must never be deleted (optional safety net;
 # unregistered torrents otherwise delete torrent + data).
 # KEEP_DATA_PATHS=["/data/torrents/keep"]
-# Max torrents listed in a Discord summary message (0 = summary only). The
-# default 25 keeps a big cleanup from flooding the channel. Connections
-# (webhook URL, username, avatar, event triggers) are configured in the UI.
+# Max torrents listed in a Discord or ntfy summary message (0 = summary only).
+# The default 25 keeps a big cleanup from flooding the channel. Connections
+# (webhook/topic URL, Discord username/avatar, ntfy access token, event
+# triggers) are configured in the UI.
 # NOTIFY_MAX_ITEMS=25
 # Public base URL where this app's UI is reachable. Used to build the "Open
 # full run" link in Discord summary messages. Any value with a trailing slash

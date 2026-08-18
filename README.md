@@ -61,11 +61,15 @@ Scan interval, dry run and exclusions are all editable there too.
   cap, excluded labels, keep-data paths, extra ignore phrases, the Deluge
   connection (URL, password, test button) and the API key (view, copy,
   regenerate).
-- **Notifications**: Sonarr/Radarr-style Discord connections with a name,
-  webhook URL, optional username and avatar override, and per-event toggles
-  (scan summary, per-torrent removals, errors, manual actions). Scan summaries
-  cap how many torrent names they list (25 by default) so a big cleanup posts
-  one message instead of flooding the channel.
+- **Notifications**: Sonarr/Radarr-style connections with a name, a webhook /
+  topic URL, per-event toggles (scan summary, per-torrent removals, errors,
+  manual actions) and a test button, supporting two channels:
+  - **Discord**: webhook URL, optional username and avatar override.
+  - **ntfy** (ntfy.sh or self-hosted): the topic publish URL, e.g.
+    `https://ntfy.sh/mytopic`, plus an optional access token sent as a Bearer
+    header when the server requires auth.
+  Scan summaries cap how many torrent names they list (25 by default) so a big
+  cleanup posts one message instead of flooding the channel.
 
 ## API
 
@@ -107,7 +111,7 @@ make install-hooks  # lefthook git hooks (lint + conventional commits)
 | `delugearr/detector.py` | qbit_manage-ported tracker-message matching |
 | `delugearr/scanner.py` | Scan cycle (fetch, detect, remove, audit, notify) |
 | `delugearr/store.py` | SQLite settings / detections / exempt / notifications |
-| `delugearr/notifier.py` | Discord webhook notifications (capped summaries) |
+| `delugearr/notifier.py` | Discord webhook and ntfy notifications (capped summaries) |
 | `delugearr/ui.py` | NiceGUI pages |
 | `delugearr/api.py` | API-key-protected REST API (OpenAPI spec) |
 | `delugearr/app.py` | FastAPI + NiceGUI mount (`/delugearr`) + scheduler |
