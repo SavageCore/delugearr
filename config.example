@@ -30,6 +30,16 @@ AUTH_PASSWORD=CHANGE_ME
 # banner shown in deletion notifications, matching qbit-manage's artwork.
 # Deletion messages fall back to an image-less embed when unset.
 # TVDB_API_KEY=
+# Skip the web UI login for clients on trusted networks (e.g. your Tailscale
+# tailnet). The REST API always requires the API key regardless of this
+# setting. Trusted networks/proxies are also editable in Settings > Security.
+# AUTH_BYPASS_ENABLED=1
+# Networks whose requests skip the login page. Default: localhost only.
+# Tailscale IPv4 (CGNAT) and IPv6 (ULA) ranges cover the whole tailnet.
+# TRUSTED_NETWORKS=["100.64.0.0/10","fd7a:115c:a1e0::/48"]
+# Peers allowed to set X-Forwarded-For (your reverse proxy). The app only
+# trusts the client IP in XFF when the direct peer is listed here.
+# TRUSTED_PROXIES=["127.0.0.1/32","::1/128"]
 # Whether to show TVDB artwork on deletion notifications (default on when a key
 # is set). Also settable in the UI.
 # NOTIFY_ARTWORK=1

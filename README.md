@@ -46,6 +46,13 @@ Scan interval, dry run and exclusions are all editable there too.
 - The server listens on `127.0.0.1:11012` at the root path. Set `HOST=0.0.0.0`
   to expose it on the network, or leave it local and put a reverse proxy in
   front. To serve it under a sub-path (e.g. `/delugearr`), set `BASE_PATH`.
+- To reach the UI over Tailscale **without** the shared (e.g. nginx basic-auth)
+  entry point, `deploy.sh` installs `nginx-delugearr-tailscale.conf` — a vhost
+  bound to the seedbox's Tailscale IP with a Tailscale TLS cert, with no basic
+  auth. Give clients on the tailnet trusted access so they skip the app login:
+  `AUTH_BYPASS_ENABLED=1` with `TRUSTED_NETWORKS=["100.64.0.0/10",
+  "fd7a:115c:a1e0::/48"]` covers the whole tailnet; the REST API still always
+  requires the API key. These are also editable in **Settings > Security**.
 - `config.example` lists every environment variable. They seed the initial
   settings; after first run the UI is the source of truth.
 
