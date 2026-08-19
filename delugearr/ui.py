@@ -739,18 +739,43 @@ def notifications_card(store):
             step=1,
         ).classes("w-full max-w-2xl")
 
-        def save_cap():
-            store.update_settings(notify_max_items=max(0, int(cap.value)))
-            ui.notify("Settings saved", type="positive")
-
         url_base = ui.input(
             "Public UI base URL (for notification run links)",
             value=store.get_settings().get("notify_url_base") or "",
             placeholder="https://delugearr.example.com",
         ).classes("w-full max-w-2xl")
 
-        def save_url_base():
-            store.update_settings(notify_url_base=(url_base.value or "").strip())
+        tvdb_key = (
+            ui.input("TVDB API key (optional, for notification artwork)")
+            .props(
+                'type="password" hint="Shows the TVDB show banner on deletion notifications, matching qbit-manage."'
+            )
+            .classes("w-full max-w-2xl")
+        )
+        tvdb_key.value = store.get_settings().get("tvdb_api_key") or ""
+        shown = {"state": False}
+        with tvdb_key.add_slot("append"):
+            toggle_icon = ui.icon("visibility").classes("cursor-pointer")
+
+            def toggle_key():
+                shown["state"] = not shown["state"]
+                tvdb_key.props(f"type={'text' if shown['state'] else 'password'}")
+                toggle_icon.name = "visibility_off" if shown["state"] else "visibility"
+
+            toggle_icon.on("click", toggle_key)
+
+        artwork = ui.switch(
+            "Show TVDB artwork on deletion notifications",
+            value=bool(store.get_settings().get("notify_artwork", False)),
+        ).classes("w-full max-w-2xl")
+
+        def save_settings():
+            store.update_settings(
+                notify_max_items=max(0, int(cap.value)),
+                notify_url_base=(url_base.value or "").strip(),
+                tvdb_api_key=(tvdb_key.value or "").strip(),
+                notify_artwork=artwork.value,
+            )
             ui.notify("Settings saved", type="positive")
 
         def open_dialog(conn):
@@ -924,8 +949,7 @@ def notifications_card(store):
                     render_connection(conn)
 
         with ui.row().classes("items-center gap-4"):
-            ui.button("Save cap", icon="save", on_click=save_cap)
-            ui.button("Save URL", icon="save", on_click=save_url_base)
+            ui.button("Save settings", icon="save", on_click=save_settings)
             ui.button("Add connection", icon="add", on_click=lambda: open_dialog(None))
 
         list_container = ui.column().classes("w-full mt-2")

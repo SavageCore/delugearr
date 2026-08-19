@@ -150,6 +150,44 @@ def test_send_test_probe(post):
     assert body["content"] == "delugearr test notification"
 
 
+def test_discord_removal_embed(post):
+    n = DiscordNotifier("https://discord/hook")
+    ok = n.send_removal(
+        "My.Adventures.with.Superman.S03.1080p.AMZN.WEB-DL",
+        label="cross-seed-link",
+        tag="tracker.beyond-hd.me",
+        tracker_url="https://tracker.beyond-hd.me:2053",
+        message="Dupe: https://beyond-hd.me/torrents/123",
+        remove_data=True,
+        artwork_url="https://artworks.thetvdb.com/banners/xx.jpg",
+    )
+    assert ok
+    embed = post[0]["json"]["embeds"][0]
+    assert embed["author"]["name"] == "Delugearr: Removing Unregistered Torrents"
+    assert embed["author"]["icon_url"] == notifier.DEFAULT_AVATAR
+    assert embed["image"]["url"] == "https://artworks.thetvdb.com/banners/xx.jpg"
+    assert embed["color"] == notifier.COLOR_LIVE
+    fields = {f["name"]: f["value"] for f in embed["fields"]}
+    assert fields["Contents Deleted"] == "Yes"
+    assert fields["Status"] == "Dupe: https://beyond-hd.me/torrents/123"
+    assert fields["Category"] == "cross-seed-link"
+    assert fields["Tag"] == "tracker.beyond-hd.me"
+    assert fields["Tracker"] == "https://tracker.beyond-hd.me:2053"
+    assert "My.Adventures.with.Superman" in fields["Torrents (1)"]
+    assert "```" in fields["Torrents (1)"]
+    assert "T" in embed["timestamp"]
+
+
+def test_discord_removal_kept_data_omits_image(post):
+    n = DiscordNotifier("https://discord/hook")
+    n.send_removal("X", remove_data=False)
+    embed = post[0]["json"]["embeds"][0]
+    fields = {f["name"]: f["value"] for f in embed["fields"]}
+    assert fields["Contents Deleted"] == "No"
+    assert embed["color"] == notifier.COLOR_OK
+    assert "image" not in embed
+
+
 # ---- ntfy -----------------------------------------------------------------
 
 
@@ -222,9 +260,22 @@ def test_ntfy_error_uses_urgent_and_warning_tag(ntfy_post):
 def test_ntfy_removal_tag_depends_on_data(ntfy_post):
     n = NtfyNotifier("https://ntfy.sh/delugearr")
     n.send_removal("X", remove_data=True)
-    assert ntfy_post[0]["headers"]["Tags"] == "tada"
+    req = ntfy_post[0]
+    assert req["headers"]["Tags"] == "tada"
+    assert "**Contents Deleted:** Yes" in req["data"]
+    assert "Category" in req["data"]
     n.send_removal("Y", remove_data=False)
     assert ntfy_post[1]["headers"]["Tags"] == "mute"
+
+
+def test_ntfy_removal_attaches_artwork(ntfy_post):
+    n = NtfyNotifier("https://ntfy.sh/delugearr")
+    n.send_removal("X", remove_data=True, artwork_url="https://artworks.thetvdb.com/banners/xx.jpg")
+    req = ntfy_post[0]
+    assert req["headers"]["Attach"] == "https://artworks.thetvdb.com/banners/xx.jpg"
+    # No artwork -> attach header is omitted.
+    n.send_removal("Y", remove_data=True)
+    assert "Attach" not in ntfy_post[1]["headers"]
 
 
 def test_ntfy_exception_is_swallowed(ntfy_post, monkeypatch):

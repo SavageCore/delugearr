@@ -104,6 +104,14 @@ def notify_url_base():
     return env("NOTIFY_URL_BASE", "")
 
 
+def tvdb_api_key():
+    return env("TVDB_API_KEY", "")
+
+
+def default_notify_artwork():
+    return _bool(env("NOTIFY_ARTWORK", "1"), True)
+
+
 def store_defaults():
     """Seed values used when the store is first initialised."""
     return {
@@ -114,4 +122,6 @@ def store_defaults():
         "deluge_password": deluge_password(),
         "notify_max_items": default_notify_max_items(),
         "notify_url_base": notify_url_base(),
+        "tvdb_api_key": tvdb_api_key(),
+        "notify_artwork": default_notify_artwork(),
     }

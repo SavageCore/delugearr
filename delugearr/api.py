@@ -16,7 +16,14 @@ from . import config
 from .deluge_client import DelugeError
 from .notifier import make_notifier
 
-REDACTED_KEYS = {"deluge_password", "api_key", "storage_secret", "webhook_url", "access_token"}
+REDACTED_KEYS = {
+    "deluge_password",
+    "api_key",
+    "storage_secret",
+    "webhook_url",
+    "access_token",
+    "tvdb_api_key",
+}
 
 
 def _redact(conn):
@@ -101,6 +108,8 @@ class SettingsUpdate(BaseModel):
     deluge_password: str | None = None
     notify_max_items: int | None = None
     notify_url_base: str | None = None
+    tvdb_api_key: str | None = None
+    notify_artwork: bool | None = None
 
 
 def build_router(store, scanner) -> APIRouter:

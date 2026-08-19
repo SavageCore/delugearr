@@ -69,7 +69,11 @@ Scan interval, dry run and exclusions are all editable there too.
     `https://ntfy.sh/mytopic`, plus an optional access token sent as a Bearer
     header when the server requires auth.
   Scan summaries cap how many torrent names they list (25 by default) so a big
-  cleanup posts one message instead of flooding the channel.
+  cleanup posts one message instead of flooding the channel. Per-torrent removal
+  notifications use a qbit-manage-style Discord embed with Contents Deleted,
+  Status, Category, Tag, Tracker and a code-blocked torrent name; when a
+  `TVDB_API_KEY` is configured (see `config.example`), the show's TVDB banner is
+  attached too.
 
 ## API
 

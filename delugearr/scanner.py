@@ -5,8 +5,10 @@ import secrets
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import config
+from .artwork import TvdbArtwork
 from .deluge_client import DelugeClient, DelugeError
 from .detector import classify_torrent
 from .notifier import make_notifier
@@ -36,6 +38,30 @@ def _nanoid(size=21):
     return "".join(secrets.choice(_NANOID_ALPHABET) for _ in range(size))
 
 
+def primary_tracker_url(torrent):
+    """Return the announce URL for a torrent's primary tracker.
+
+    Deluge's ``trackers`` list leads with DHT/PeX (which have no host), so we
+    look for the first entry whose host matches ``tracker_host``, falling back
+    to the first http(s)/udp entry, then to the bare host.
+    """
+    host = (torrent.get("tracker_host") or "").lower()
+    candidates = []
+    for tr in torrent.get("trackers") or []:
+        if not isinstance(tr, dict):
+            continue
+        url = (tr.get("url") or "").strip()
+        if not url:
+            continue
+        candidates.append(url)
+        if not url.startswith("dht") and host and host in (urlsplit(url).hostname or "").lower():
+            return url
+    for url in candidates:
+        if url.startswith(("http://", "https://", "udp://", "ws://", "wss://")):
+            return url
+    return torrent.get("tracker_host") or ""
+
+
 def _path_under(path, parent):
     if not path or not parent:
         return False
@@ -63,6 +89,7 @@ class Scanner:
         self.scanning = False
         self.deluge_ok = None
         self.last_error = None
+        self._artwork = None
 
     def _sync_client(self):
         """Recreate the Deluge client when the stored connection settings changed."""
@@ -75,6 +102,38 @@ class Scanner:
             self.client = DelugeClient(url, password)
             self._cfg_url = url
             self._cfg_password = password
+
+    def _ensure_artwork(self):
+        """(Re)create the TVDB artwork resolver when its settings changed."""
+        settings = self.store.get_settings()
+        key = (settings.get("tvdb_api_key") or "").strip()
+        enabled = bool(settings.get("notify_artwork", False))
+        if key and enabled:
+            if self._artwork is None or self._artwork.api_key != key:
+                self._artwork = TvdbArtwork(key, store=self.store)
+            return
+        self._artwork = None
+
+    def _removal_build(self, torrent, message, keep_data):
+        """Return a fan-out build that sends the qbit-style removal notification."""
+        remove_data = not keep_data
+        tracker_url = primary_tracker_url(torrent)
+
+        def build(n):
+            art = None
+            if self._artwork is not None:
+                art = self._artwork.get_banner(torrent.get("name", ""))
+            return n.send_removal(
+                torrent.get("name", ""),
+                torrent.get("label", ""),
+                torrent.get("tracker_host", ""),
+                tracker_url,
+                message,
+                remove_data=remove_data,
+                artwork_url=art,
+            )
+
+        return build
 
     def _fan_out(self, trigger, build):
         """Send a notification to every enabled connection subscribed to a trigger.
@@ -118,6 +177,7 @@ class Scanner:
 
     def _scan_locked(self, dry_run=None, run_id=None):
         self._sync_client()
+        self._ensure_artwork()
         start = time.time()
         settings = self.store.get_settings()
         if dry_run is None:
@@ -232,16 +292,7 @@ class Scanner:
                 stats["removed"] += 1
                 action = "removed_data"
             record(torrent, message, status, action, False)
-            self._fan_out(
-                "removals",
-                lambda n, t=torrent, m=message, kd=keep_data: n.send_removal(
-                    t.get("name", ""),
-                    t.get("label", ""),
-                    t.get("tracker_host", ""),
-                    m,
-                    remove_data=not kd,
-                ),
-            )
+            self._fan_out("removals", self._removal_build(torrent, message, keep_data))
 
         stats["seconds"] = round(time.time() - start, 2)
         if pending:
@@ -254,6 +305,7 @@ class Scanner:
     def manual_remove(self, torrent_hash, remove_data=True):
         """Explicit user-initiated removal of a single torrent."""
         self._sync_client()
+        self._ensure_artwork()
         torrents = self.client.get_torrents()
         torrent = torrents.get(torrent_hash)
         if not isinstance(torrent, dict):
@@ -263,13 +315,7 @@ class Scanner:
         self._fan_out("manual_actions", lambda n: n.send_manual(action, torrent.get("name", ""), remove_data))
         self._fan_out(
             "removals",
-            lambda n: n.send_removal(
-                torrent.get("name", ""),
-                torrent.get("label", ""),
-                torrent.get("tracker_host", ""),
-                torrent.get("tracker_status", ""),
-                remove_data=remove_data,
-            ),
+            self._removal_build(torrent, torrent.get("tracker_status", ""), keep_data=not remove_data),
         )
         self.store.log_detection(
             run_id=f"manual-{_nanoid()}",

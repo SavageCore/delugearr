@@ -26,6 +26,13 @@ AUTH_PASSWORD=CHANGE_ME
 # (webhook/topic URL, Discord username/avatar, ntfy access token, event
 # triggers) are configured in the UI.
 # NOTIFY_MAX_ITEMS=25
+# Optional TVDB v4 API key (free from thetvdb.com) used to fetch the show
+# banner shown in deletion notifications, matching qbit-manage's artwork.
+# Deletion messages fall back to an image-less embed when unset.
+# TVDB_API_KEY=
+# Whether to show TVDB artwork on deletion notifications (default on when a key
+# is set). Also settable in the UI.
+# NOTIFY_ARTWORK=1
 # Public base URL where this app's UI is reachable. Used to build the "Open
 # full run" link in Discord summary messages. Any value with a trailing slash
 # is normalised. If unset, the link is omitted. Also settable in the UI.

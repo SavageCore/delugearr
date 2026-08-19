@@ -84,15 +84,31 @@ class DiscordNotifier:
         payload = self._payload(content="delugearr test notification")
         return self._send(payload)
 
-    def send_removal(self, name, label="", tracker="", message="", remove_data=True):
-        parts = [f"**{'Removed + data' if remove_data else 'Removed (kept data)'}** `{name}`"]
-        if label:
-            parts.append(f"Label: {label}")
-        if tracker:
-            parts.append(f"Tracker: {tracker}")
-        if message:
-            parts.append(f"Message: {message}")
-        payload = self._payload(content="\n".join(parts))
+    def send_removal(
+        self, name="", label="", tag="", tracker_url="", message="", remove_data=True, artwork_url=None
+    ):
+        """qbit-manage-style deletion embed."""
+        fields = [
+            {"name": "Contents Deleted", "value": "Yes" if remove_data else "No", "inline": True},
+            {"name": "Status", "value": message or "-", "inline": True},
+            {"name": "Category", "value": label or "-", "inline": True},
+            {"name": "Tag", "value": tag or "-", "inline": True},
+            {"name": "Tracker", "value": tracker_url or "-", "inline": True},
+            {"name": "Torrents (1)", "value": f"```\n{name}\n```", "inline": False},
+        ]
+        embed = {
+            "author": {
+                "name": "Delugearr: Removing Unregistered Torrents",
+                "icon_url": self.avatar,
+            },
+            "color": COLOR_LIVE if remove_data else COLOR_OK,
+            "fields": fields,
+            "footer": {"text": "Delugearr", "icon_url": self.avatar},
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        if artwork_url:
+            embed["image"] = {"url": artwork_url}
+        payload = self._payload(embeds=[embed])
         return self._send(payload)
 
     # ---- scan summary ----------------------------------------------------
@@ -236,6 +252,8 @@ class NtfyNotifier:
             headers["Tags"] = ",".join(payload["tags"])
         if payload.get("click"):
             headers["Click"] = payload["click"]
+        if payload.get("attach"):
+            headers["Attach"] = payload["attach"]
         # Messages carry Markdown (**bold**, `code`), so ask ntfy to render it.
         headers["Content-Type"] = "text/markdown"
         if self.access_token:
@@ -277,17 +295,24 @@ class NtfyNotifier:
         payload = self._payload("delugearr test notification", title="Delugearr")
         return self._send(payload)
 
-    def send_removal(self, name, label="", tracker="", message="", remove_data=True):
+    def send_removal(
+        self, name="", label="", tag="", tracker_url="", message="", remove_data=True, artwork_url=None
+    ):
         verb = "Removed + data" if remove_data else "Removed (kept data)"
-        parts = [f"**{verb}** `{name}`"]
-        if label:
-            parts.append(f"Label: {label}")
-        if tracker:
-            parts.append(f"Tracker: {tracker}")
-        if message:
-            parts.append(f"Message: {message}")
+        lines = [
+            f"**Contents Deleted:** {'Yes' if remove_data else 'No'}",
+            f"**Status:** {message or '-'}",
+            f"**Category:** {label or '-'}",
+            f"**Tag:** {tag or '-'}",
+            f"**Tracker:** {tracker_url or '-'}",
+            f"```\n{name}\n```",
+        ]
         payload = self._payload(
-            "\n".join(parts), title=verb, priority=NTFY_PRIO_HIGH, tags=["tada"] if remove_data else ["mute"]
+            "\n".join(lines),
+            title=verb,
+            priority=NTFY_PRIO_HIGH,
+            tags=["tada"] if remove_data else ["mute"],
+            attach=artwork_url,
         )
         return self._send(payload)
 

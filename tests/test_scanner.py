@@ -33,3 +33,45 @@ def test_notify_summary_skipped_when_no_detections():
     # build() would send; if pending is empty no fan-out should happen at all.
     scanner._notify_summary("run1", [], {})
     assert sent == []
+
+
+def test_removal_build_passes_qbit_fields():
+    from delugearr.scanner import primary_tracker_url
+
+    scanner = Scanner(store=_FakeSettingsStore())
+
+    torrent = {
+        "name": "My.Adventures.with.Superman.S03.1080p",
+        "label": "cross-seed-link",
+        "tracker_host": "tracker.beyond-hd.me",
+        "trackers": [
+            {"url": "dht://tracker.opentrackr.org"},
+            {"url": "https://tracker.beyond-hd.me:2053/announce"},
+        ],
+    }
+    assert primary_tracker_url(torrent) == "https://tracker.beyond-hd.me:2053/announce"
+
+    captured = {}
+
+    class Spy:
+        def send_removal(self, *a, **k):
+            captured["args"] = a
+            captured["kwargs"] = k
+            return True
+
+    build = scanner._removal_build(torrent, "Dupe: https://beyond-hd.me/123", keep_data=False)
+    build(Spy())
+    assert captured["args"][0] == "My.Adventures.with.Superman.S03.1080p"
+    assert captured["args"][1] == "cross-seed-link"
+    assert captured["args"][2] == "tracker.beyond-hd.me"
+    assert captured["args"][3] == "https://tracker.beyond-hd.me:2053/announce"
+    assert captured["args"][4] == "Dupe: https://beyond-hd.me/123"
+    assert captured["kwargs"]["remove_data"] is True  # keep_data=False
+
+    # No artwork resolver -> artwork_url is None.
+    assert captured["kwargs"]["artwork_url"] is None
+
+
+class _FakeSettingsStore:
+    def get_settings(self):
+        return {"tvdb_api_key": "", "notify_artwork": False}

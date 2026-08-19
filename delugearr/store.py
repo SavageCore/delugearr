@@ -20,6 +20,8 @@ DEFAULTS = {
     "deluge_password": "",
     "notify_max_items": 25,
     "notify_url_base": "",
+    "tvdb_api_key": "",
+    "notify_artwork": False,
     "api_key": None,
     "storage_secret": None,
     "last_scan_at": None,
@@ -41,6 +43,8 @@ EDITABLE_KEYS = {
     "deluge_password",
     "notify_max_items",
     "notify_url_base",
+    "tvdb_api_key",
+    "notify_artwork",
 }
 
 _SCHEMA = """
@@ -79,6 +83,12 @@ CREATE TABLE IF NOT EXISTS notification_connections (
     access_token TEXT,
     triggers     TEXT,
     enabled      INTEGER DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS artwork_cache (
+    title     TEXT PRIMARY KEY,
+    url       TEXT,
+    series_id TEXT,
+    ts        REAL
 );
 CREATE INDEX IF NOT EXISTS idx_detections_ts   ON detections(ts);
 CREATE INDEX IF NOT EXISTS idx_detections_run  ON detections(run_id);
@@ -192,6 +202,26 @@ class Store:
             return key
 
         return self._run(fn)
+
+    # ---- artwork cache ---------------------------------------------------
+    def get_artwork_cache(self, title):
+        def fn(con):
+            row = con.execute("SELECT url, ts FROM artwork_cache WHERE title=?", (title,)).fetchone()
+            if row is None:
+                return None
+            return row["ts"], row["url"]
+
+        return self._run(fn)
+
+    def set_artwork_cache(self, title, url, series_id=""):
+        def fn(con):
+            con.execute(
+                "INSERT INTO artwork_cache(title,url,series_id,ts) VALUES(?,?,?,?) "
+                "ON CONFLICT(title) DO UPDATE SET url=excluded.url, series_id=excluded.series_id, ts=excluded.ts",
+                (title, url, series_id, time.time()),
+            )
+
+        self._run(fn)
 
     # ---- detections -----------------------------------------------------
     def log_detection(self, run_id, torrent, message, status, action, dry_run):
