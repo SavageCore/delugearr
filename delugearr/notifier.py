@@ -229,18 +229,27 @@ class NtfyNotifier:
 
     The connection's ``webhook_url`` is the full publish URL (topic in the
     path), e.g. ``https://ntfy.sh/mytopic``. An optional ``access_token`` is
-    sent as a Bearer Authorization header when the server requires auth.
+    sent as a Bearer Authorization header when the server requires auth. An
+    optional ``tags`` list of emoji shortcodes (or plain labels) is appended
+    to every message's built-in event tags - see https://docs.ntfy.sh/emojis/.
     """
 
-    def __init__(self, topic_url, access_token=None):
+    def __init__(self, topic_url, access_token=None, tags=None):
         self.topic_url = topic_url
         self.access_token = access_token or ""
+        self.tags = list(tags or [])
 
     def _payload(self, message, **kwargs):
         payload = {"message": message, "priority": NTFY_PRIO_DEFAULT}
         for k, v in kwargs.items():
             if v is not None and v != "":
                 payload[k] = v
+        if self.tags:
+            merged = list(payload.get("tags") or [])
+            for tag in self.tags:
+                if tag not in merged:
+                    merged.append(tag)
+            payload["tags"] = merged
         return payload
 
     def _post(self, payload):
@@ -354,5 +363,5 @@ class NtfyNotifier:
 def make_notifier(conn):
     """Return the notifier matching a connection's ``type``."""
     if conn.get("type") == "ntfy":
-        return NtfyNotifier(conn.get("webhook_url", ""), conn.get("access_token"))
+        return NtfyNotifier(conn.get("webhook_url", ""), conn.get("access_token"), conn.get("tags"))
     return DiscordNotifier(conn.get("webhook_url", ""), conn.get("username"), conn.get("avatar"))

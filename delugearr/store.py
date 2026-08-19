@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS notification_connections (
     username     TEXT,
     avatar       TEXT,
     access_token TEXT,
+    tags         TEXT,
     triggers     TEXT,
     enabled      INTEGER DEFAULT 1
 );
@@ -167,6 +168,7 @@ class Store:
         for name, definition in (
             ("type", "TEXT DEFAULT 'discord'"),
             ("access_token", "TEXT"),
+            ("tags", "TEXT"),
         ):
             if name not in notif_cols:
                 con.execute(f"ALTER TABLE notification_connections ADD COLUMN {name} {definition}")
@@ -583,6 +585,7 @@ class Store:
             "username": row["username"] or "",
             "avatar": row["avatar"] or "",
             "access_token": row["access_token"] or "",
+            "tags": json.loads(row["tags"]) if row["tags"] else [],
             "triggers": json.loads(row["triggers"]) if row["triggers"] else [],
             "enabled": bool(row["enabled"]),
         }
@@ -602,13 +605,14 @@ class Store:
         username="",
         avatar="",
         access_token="",
+        tags=None,
         triggers=None,
         enabled=True,
     ):
         def fn(con):
             con.execute(
-                "INSERT INTO notification_connections(name,type,webhook_url,username,avatar,access_token,triggers,enabled) "
-                "VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO notification_connections(name,type,webhook_url,username,avatar,access_token,tags,triggers,enabled) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     name,
                     type or "discord",
@@ -616,6 +620,7 @@ class Store:
                     username,
                     avatar,
                     access_token,
+                    json.dumps(list(tags or [])),
                     json.dumps(list(triggers or [])),
                     int(bool(enabled)),
                 ),
@@ -645,12 +650,14 @@ class Store:
                 current["avatar"] = fields["avatar"]
             if "access_token" in fields:
                 current["access_token"] = fields["access_token"]
+            if "tags" in fields:
+                current["tags"] = list(fields["tags"] or [])
             if "triggers" in fields:
                 current["triggers"] = list(fields["triggers"] or [])
             if "enabled" in fields:
                 current["enabled"] = bool(fields["enabled"])
             con.execute(
-                "UPDATE notification_connections SET name=?,type=?,webhook_url=?,username=?,avatar=?,access_token=?,triggers=?,enabled=? "
+                "UPDATE notification_connections SET name=?,type=?,webhook_url=?,username=?,avatar=?,access_token=?,tags=?,triggers=?,enabled=? "
                 "WHERE id=?",
                 (
                     current["name"],
@@ -659,6 +666,7 @@ class Store:
                     current["username"],
                     current["avatar"],
                     current["access_token"],
+                    json.dumps(current["tags"]),
                     json.dumps(current["triggers"]),
                     int(current["enabled"]),
                     cid,

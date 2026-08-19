@@ -63,6 +63,7 @@ class Notification(BaseModel):
     username: str = ""
     avatar: str = ""
     access_token: str = ""
+    tags: list[str] = []
     triggers: list[str] = []
     enabled: bool = True
 
@@ -76,6 +77,7 @@ class NotificationUpdate(BaseModel):
     username: str | None = None
     avatar: str | None = None
     access_token: str | None = None
+    tags: list[str] | None = None
     triggers: list[str] | None = None
     enabled: bool | None = None
 

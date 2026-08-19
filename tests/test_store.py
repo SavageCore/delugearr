@@ -231,10 +231,12 @@ def test_notification_ntfy_type_and_access_token_roundtrip(tmp_path):
         "https://ntfy.sh/delugearr",
         type="ntfy",
         access_token="tk_secret",
+        tags=["hammer_and_wrench", "delugearr"],
         triggers=["errors"],
     )
     assert conn["type"] == "ntfy"
     assert conn["access_token"] == "tk_secret"
+    assert conn["tags"] == ["hammer_and_wrench", "delugearr"]
     assert conn["webhook_url"] == "https://ntfy.sh/delugearr"
 
     assert store.enabled_connections("errors") == [conn]
@@ -244,6 +246,11 @@ def test_notification_ntfy_type_and_access_token_roundtrip(tmp_path):
     assert updated["access_token"] == "tk_new"
     assert updated["webhook_url"] == "https://ntfy.sh/other"
     assert updated["type"] == "ntfy"
+    assert updated["tags"] == ["hammer_and_wrench", "delugearr"]
+
+    store.update_notification(conn["id"], tags=["tada"])
+    updated = store.list_notifications()[0]
+    assert updated["tags"] == ["tada"]
 
 
 def test_notification_legacy_db_migrates_type_to_discord(tmp_path):
@@ -276,6 +283,7 @@ def test_notification_legacy_db_migrates_type_to_discord(tmp_path):
     conn = store.list_notifications()[0]
     assert conn["type"] == "discord"
     assert conn["access_token"] == ""
+    assert conn["tags"] == []
     assert conn["enabled"] is True
     # new ntfy connection works on the migrated schema
     ntfy = store.add_notification("Phone", "https://ntfy.sh/x", type="ntfy", access_token="t")

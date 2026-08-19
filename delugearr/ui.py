@@ -889,6 +889,7 @@ def notifications_card(store):
                 "username": "",
                 "avatar": "",
                 "access_token": "",
+                "tags": [],
                 "triggers": [],
             }
             dialog = ui.dialog()
@@ -924,6 +925,14 @@ def notifications_card(store):
                     .props('hint="Required only if your ntfy server requires auth. Sent as a Bearer token."')
                     .classes("w-full")
                 )
+                tags = (
+                    ui.input("Tags (optional)", value=",".join(conn.get("tags") or []))
+                    .props(
+                        'hint="Comma-separated ntfy tags/emoji shortcodes, e.g. hammer_and_wrench,delugearr. Sent '
+                        "alongside each message's event emoji - see https://docs.ntfy.sh/emojis/.\""
+                    )
+                    .classes("w-full")
+                )
                 ui.label("Select which events should trigger this notification").classes(
                     "text-sm font-medium pt-2"
                 )
@@ -948,6 +957,7 @@ def notifications_card(store):
                 username.set_visibility(discord)
                 avatar.set_visibility(discord)
                 access_token.set_visibility(not discord)
+                tags.set_visibility(not discord)
 
             apply_type(conn_type.value)
             conn_type.on_value_change(lambda e: apply_type(e.value))
@@ -956,7 +966,7 @@ def notifications_card(store):
                 result_label.text = "Webhook details changed"
                 result_label.classes(replace="text-sm text-grey")
 
-            for field in (webhook, username, avatar, access_token):
+            for field in (webhook, username, avatar, access_token, tags):
                 field.on_value_change(lambda _e: invalidate())
 
             def build_conn():
@@ -966,6 +976,7 @@ def notifications_card(store):
                     "username": username.value,
                     "avatar": avatar.value,
                     "access_token": (access_token.value or "").strip(),
+                    "tags": [t.strip() for t in (tags.value or "").split(",") if t.strip()],
                 }
 
             def run_test():
@@ -1012,6 +1023,7 @@ def notifications_card(store):
                     "username": data["username"],
                     "avatar": data["avatar"],
                     "access_token": data["access_token"],
+                    "tags": data["tags"],
                     "triggers": [t for t, s in toggles.items() if s.value],
                 }
                 if edit:

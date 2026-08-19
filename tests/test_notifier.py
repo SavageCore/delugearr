@@ -278,6 +278,24 @@ def test_ntfy_removal_attaches_artwork(ntfy_post):
     assert "Attach" not in ntfy_post[1]["headers"]
 
 
+def test_ntfy_configured_tags_append_to_builtins(ntfy_post):
+    n = NtfyNotifier("https://ntfy.sh/delugearr", tags=["hammer_and_wrench", "delugearr"])
+    n.send_summary({"dry_run": True, "unregistered": 1}, "run1", [], max_items=0)
+    assert ntfy_post[0]["headers"]["Tags"] == "eyes,hammer_and_wrench,delugearr"
+
+    n.send_removal("X", remove_data=True)
+    assert ntfy_post[1]["headers"]["Tags"] == "tada,hammer_and_wrench,delugearr"
+
+    n.send_error("boom")
+    assert ntfy_post[2]["headers"]["Tags"] == "warning,hammer_and_wrench,delugearr"
+
+
+def test_ntfy_configured_tags_dedupe_against_builtins(ntfy_post):
+    n = NtfyNotifier("https://ntfy.sh/delugearr", tags=["tada", "tada"])
+    n.send_removal("X", remove_data=True)
+    assert ntfy_post[0]["headers"]["Tags"] == "tada"
+
+
 def test_ntfy_exception_is_swallowed(ntfy_post, monkeypatch):
     def boom(url, data=None, headers=None, timeout=10):
         raise notifier.requests.ConnectionError("down")
@@ -288,9 +306,16 @@ def test_ntfy_exception_is_swallowed(ntfy_post, monkeypatch):
 
 
 def test_make_notifier_dispatches_by_type():
-    assert isinstance(
-        make_notifier({"type": "ntfy", "webhook_url": "https://ntfy.sh/x", "access_token": "t"}), NtfyNotifier
+    ntfy = make_notifier(
+        {
+            "type": "ntfy",
+            "webhook_url": "https://ntfy.sh/x",
+            "access_token": "t",
+            "tags": ["hammer_and_wrench"],
+        }
     )
+    assert isinstance(ntfy, NtfyNotifier)
+    assert ntfy.tags == ["hammer_and_wrench"]
     assert isinstance(
         make_notifier({"type": "discord", "webhook_url": "https://discord/hook"}), DiscordNotifier
     )

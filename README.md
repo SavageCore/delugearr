@@ -75,8 +75,11 @@ Scan interval, dry run and exclusions are all editable there too.
   manual actions) and a test button, supporting two channels:
   - **Discord**: webhook URL, optional username and avatar override.
   - **ntfy** (ntfy.sh or self-hosted): the topic publish URL, e.g.
-    `https://ntfy.sh/mytopic`, plus an optional access token sent as a Bearer
-    header when the server requires auth.
+    `https://ntfy.sh/mytopic`, an optional access token sent as a Bearer
+    header when the server requires auth, and optional comma-separated tags /
+    emoji shortcodes (e.g. `hammer_and_wrench,delugearr`) that ride along on
+    every message next to the built-in event emoji - see
+    https://docs.ntfy.sh/emojis/.
   Scan summaries cap how many torrent names they list (25 by default) so a big
   cleanup posts one message instead of flooding the channel. Per-torrent removal
   notifications use a qbit-manage-style Discord embed with Contents Deleted,

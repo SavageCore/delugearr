@@ -352,21 +352,25 @@ def test_ntfy_notification_crud_and_redaction(api, monkeypatch):
             "type": "ntfy",
             "webhook_url": "https://ntfy.sh/delugearr",
             "access_token": "tk_secret",
+            "tags": ["hammer_and_wrench", "delugearr"],
             "triggers": ["scan_summary", "errors"],
         },
     ).json()
     assert created["type"] == "ntfy"
     assert created["webhook_url"] == "***"
     assert created["access_token"] == "***"
+    assert created["tags"] == ["hammer_and_wrench", "delugearr"]
     cid = created["id"]
 
     raw = store.list_notifications()[0]
     assert raw["type"] == "ntfy"
     assert raw["webhook_url"] == "https://ntfy.sh/delugearr"
     assert raw["access_token"] == "tk_secret"
+    assert raw["tags"] == ["hammer_and_wrench", "delugearr"]
 
     listed = client.get("/delugearr/api/notifications", headers=headers).json()["rows"][0]
     assert listed["access_token"] == "***"
+    assert listed["tags"] == ["hammer_and_wrench", "delugearr"]
 
     assert client.post(f"/delugearr/api/notifications/{cid}/test", headers=headers).json() == {"sent": True}
     assert client.delete(f"/delugearr/api/notifications/{cid}", headers=headers).status_code == 200
