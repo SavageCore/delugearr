@@ -66,10 +66,10 @@ Scan interval, dry run and exclusions are all editable there too.
   exempt disappear from the list immediately (they stay in History).
 - **History**: audit log of detections and removals, also sortable and
   filterable.
-- **Settings**: dry-run toggle, scan interval, grace period, per-tracker removal
-  cap, excluded labels, keep-data paths, extra ignore phrases, the Deluge
-  connection (URL, password, test button) and the API key (view, copy,
-  regenerate).
+- **Settings**: dry-run toggle, scan interval, grace period, unregistered
+  confirmation dwell timer, per-tracker removal cap, excluded labels,
+  keep-data paths, extra ignore phrases, the Deluge connection (URL, password,
+  test button) and the API key (view, copy, regenerate).
 - **Notifications**: Sonarr/Radarr-style connections with a name, a webhook /
   topic URL, per-event toggles (scan summary, per-torrent removals, errors,
   manual actions) and a test button, supporting two channels:

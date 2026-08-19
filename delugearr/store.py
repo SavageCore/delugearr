@@ -12,6 +12,8 @@ DEFAULTS = {
     "interval_minutes": 30,
     "filter_completed": True,
     "grace_minutes": 0,
+    "rem_unregistered_confirm_minutes": 0,
+    "unregistered_tag": "unregisteredCheck",
     "max_torrents_per_tracker": 0,
     "excluded_labels": [],
     "keep_data_paths": [],
@@ -45,6 +47,8 @@ EDITABLE_KEYS = {
     "interval_minutes",
     "filter_completed",
     "grace_minutes",
+    "rem_unregistered_confirm_minutes",
+    "unregistered_tag",
     "max_torrents_per_tracker",
     "excluded_labels",
     "keep_data_paths",
@@ -88,6 +92,11 @@ CREATE TABLE IF NOT EXISTS exempt (
     torrent_hash TEXT PRIMARY KEY,
     reason       TEXT,
     added_ts     REAL
+);
+CREATE TABLE IF NOT EXISTS pending_removal (
+    torrent_hash    TEXT PRIMARY KEY,
+    first_seen_ts   REAL,
+    tag             TEXT
 );
 CREATE TABLE IF NOT EXISTS notification_connections (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -498,6 +507,66 @@ class Store:
 
     def exempt_hashes(self):
         return {r["torrent_hash"] for r in self.list_exempt()}
+
+    # ---- pending removal (dwell timer) ------------------------------------
+    def set_pending_removal(self, torrent_hash, tag="", ts=None):
+        def fn(con):
+            con.execute(
+                "INSERT INTO pending_removal(torrent_hash,first_seen_ts,tag) VALUES(?,?,?) "
+                "ON CONFLICT(torrent_hash) DO UPDATE SET first_seen_ts=excluded.first_seen_ts, "
+                "tag=excluded.tag",
+                (torrent_hash, ts if ts is not None else time.time(), tag or ""),
+            )
+            self._bump(con)
+
+        self._run(fn)
+
+    def get_pending_removal(self, torrent_hash):
+        def fn(con):
+            row = con.execute(
+                "SELECT first_seen_ts FROM pending_removal WHERE torrent_hash=?", (torrent_hash,)
+            ).fetchone()
+            return row["first_seen_ts"] if row else None
+
+        return self._run(fn)
+
+    def clear_pending_removal(self, torrent_hash):
+        if not torrent_hash:
+            return
+
+        def fn(con):
+            con.execute("DELETE FROM pending_removal WHERE torrent_hash=?", (torrent_hash,))
+            self._bump(con)
+
+        self._run(fn)
+
+    def list_pending_removal(self):
+        def fn(con):
+            return [dict(r) for r in con.execute("SELECT * FROM pending_removal ORDER BY first_seen_ts DESC")]
+
+        return self._run(fn)
+
+    def prune_pending_removal(self, active_hashes):
+        """Drop orphan pending markers for torrents no longer present.
+
+        A pending marker only lives as long as the torrent still exists and is
+        still flagged; anything else (removed externally, removed by us, or
+        edited out of Deluge) is stale and can never confirm into a removal.
+        """
+
+        def fn(con):
+            rows = con.execute("SELECT torrent_hash FROM pending_removal").fetchall()
+            existing = {r["torrent_hash"] for r in rows}
+            if not existing:
+                return
+            active = set(active_hashes or [])
+            stale = existing - active
+            for h in stale:
+                con.execute("DELETE FROM pending_removal WHERE torrent_hash=?", (h,))
+            if stale:
+                self._bump(con)
+
+        self._run(fn)
 
     # ---- notification connections ----------------------------------------
     TRIGGERS = ("scan_summary", "errors", "manual_actions", "removals")

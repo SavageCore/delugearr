@@ -100,6 +100,8 @@ class SettingsUpdate(BaseModel):
     interval_minutes: int | None = None
     filter_completed: bool | None = None
     grace_minutes: int | None = None
+    rem_unregistered_confirm_minutes: int | None = None
+    unregistered_tag: str | None = None
     max_torrents_per_tracker: int | None = None
     excluded_labels: list[str] | None = None
     keep_data_paths: list[str] | None = None

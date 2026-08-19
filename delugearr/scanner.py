@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from . import config
 from .artwork import TvdbArtwork
 from .deluge_client import DelugeClient, DelugeError
-from .detector import classify_torrent
+from .detector import classify_torrent, tracker_state
 from .notifier import make_notifier
 from .store import Store
 
@@ -193,6 +193,7 @@ class Scanner:
             "skipped_limit": 0,
             "removed": 0,
             "removed_nodata": 0,
+            "pending": 0,
             "dry_run": bool(dry_run),
             "seconds": 0.0,
         }
@@ -216,6 +217,8 @@ class Scanner:
         extra_ignore = settings.get("extra_ignore") or []
         filter_completed = bool(settings.get("filter_completed", True))
         grace_min = int(settings.get("grace_minutes", 0) or 0)
+        confirm_min = int(settings.get("rem_unregistered_confirm_minutes", 0) or 0)
+        unregistered_tag = settings.get("unregistered_tag") or "unregisteredCheck"
         max_per_tracker = int(settings.get("max_torrents_per_tracker", 0) or 0)
         now = time.time()
         tracker_count = {}
@@ -245,10 +248,25 @@ class Scanner:
                 continue
 
             status, message, tracker_host = classify_torrent(torrent, extra_ignore=extra_ignore)
+            state = tracker_state(torrent)
+
+            # #1359 guard: a WORKING tracker means the torrent is alive, so it
+            # is never removed (and any pending flag from a prior run is dropped).
+            if state["working"]:
+                self.store.clear_pending_removal(torrent_hash)
+                continue
+            # A tracker still UPDATING / NOT_CONTACTED is inconclusive - it may
+            # yet come back working - so never conclude "dead" on that state.
+            # Only available when Deluge exposes a numeric per-tracker status.
+            if state["status_known"] and state["inconclusive"]:
+                continue
+
             if status == "ok":
+                self.store.clear_pending_removal(torrent_hash)
                 continue
             if status == "transient":
                 stats["transient"] += 1
+                self.store.clear_pending_removal(torrent_hash)
                 continue
 
             stats["unregistered"] += 1
@@ -264,6 +282,21 @@ class Scanner:
                     if age_min < grace_min:
                         stats["skipped_grace"] += 1
                         continue
+
+            # Dwell timer (#1360): require the torrent to stay unregistered for
+            # rem_unregistered_confirm_minutes before removing, so a single
+            # transient "unregistered" tracker response during an outage can't
+            # delete a healthy torrent. First sighting stamps a marker; set this
+            # above your tracker announce interval.
+            if confirm_min > 0:
+                first_seen = self.store.get_pending_removal(torrent_hash)
+                elapsed = (now - first_seen) / 60.0 if first_seen is not None else None
+                if first_seen is None or elapsed < confirm_min:
+                    if first_seen is None and not dry_run:
+                        self.store.set_pending_removal(torrent_hash, unregistered_tag, now)
+                    stats["pending"] += 1
+                    record(torrent, message, status, "pending_confirm", dry_run)
+                    continue
 
             if max_per_tracker > 0:
                 host_key = tracker_host or "unknown"
@@ -293,6 +326,10 @@ class Scanner:
                 action = "removed_data"
             record(torrent, message, status, action, False)
             self._fan_out("removals", self._removal_build(torrent, message, keep_data))
+
+        # Drop dwell markers for torrents no longer present in Deluge (removed
+        # externally or by us); they can never confirm into a removal.
+        self.store.prune_pending_removal(set(torrents))
 
         stats["seconds"] = round(time.time() - start, 2)
         if pending:

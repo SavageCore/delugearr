@@ -117,6 +117,7 @@ class DiscordNotifier:
         n = int(stats.get("unregistered", 0))
         color = COLOR_DRY if dry_run else COLOR_LIVE
 
+        pending = int(stats.get("pending", 0))
         fields = [
             {
                 "name": "Mode",
@@ -125,6 +126,8 @@ class DiscordNotifier:
             }
         ]
         fields.append({"name": "Unregistered", "value": f"{n}", "inline": True})
+        if pending:
+            fields.append({"name": "Pending confirmation", "value": f"{pending}", "inline": True})
 
         listed, more = _chunk_torrents(sample, max_items)
         if listed:
@@ -321,10 +324,13 @@ class NtfyNotifier:
         dry_run = bool(stats.get("dry_run", True))
         n = int(stats.get("unregistered", 0))
 
+        pending = int(stats.get("pending", 0))
         lines = [
             ("DRY RUN, nothing was removed" if dry_run else "LIVE, removals executed"),
             f"Unregistered: {n}",
         ]
+        if pending:
+            lines.append(f"Pending confirmation: {pending}")
         listed, more = _chunk_torrents(sample, max_items)
         if listed:
             lines.append("")

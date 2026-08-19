@@ -2,7 +2,7 @@
 
 import pytest
 
-from delugearr.detector import classify_torrent
+from delugearr.detector import classify_torrent, real_trackers, tracker_state
 from delugearr.ui import message_category
 
 
@@ -101,6 +101,84 @@ def test_tracker_message_field_used():
         )
     )
     assert status == "unregistered"
+
+
+def test_detect_unregistered_when_not_last_tracker():
+    # Regression for #1358: an unregistered tracker followed by another failing
+    # tracker (unregistered is not last in the list) is still detected. The
+    # combined-message model is position independent.
+    status, _, _ = classify_torrent(
+        torrent(
+            trackers=[
+                {
+                    "url": "https://a.example.org/announce",
+                    "status": 3,
+                    "message": "Error: unregistered torrent",
+                },
+                {"url": "https://b.example.org/announce", "status": 3},
+            ]
+        )
+    )
+    assert status == "unregistered"
+
+
+def test_real_trackers_filters_pseudo_entries():
+    trackers = [
+        {"url": "dht://tracker.opentrackr.org"},
+        {"url": "https://tracker.example.org/announce"},
+        {"url": "udp://tracker.opentrackr.org:1337/announce"},
+        {"url": "lsd://0.0.0.0"},
+    ]
+    result = real_trackers({"trackers": trackers})
+    assert [t["url"] for t in result] == [
+        "https://tracker.example.org/announce",
+        "udp://tracker.opentrackr.org:1337/announce",
+    ]
+
+
+def test_tracker_state_working():
+    state = tracker_state(
+        torrent(
+            trackers=[
+                {"url": "https://a/announce", "status": 1},
+                {"url": "https://b/announce", "status": 3, "message": "Error: unregistered torrent"},
+            ]
+        )
+    )
+    assert state["working"] is True
+    assert state["inconclusive"] is False
+    assert state["status_known"] is True
+
+
+def test_tracker_state_inconclusive():
+    state = tracker_state(
+        torrent(
+            trackers=[
+                {"url": "https://a/announce", "status": 2},
+                {"url": "https://b/announce", "status": 3, "message": "Error: unregistered torrent"},
+            ]
+        )
+    )
+    assert state["working"] is False
+    assert state["inconclusive"] is True
+    assert state["status_known"] is True
+
+
+def test_tracker_state_not_contacted_inconclusive():
+    state = tracker_state(torrent(trackers=[{"url": "https://a/announce", "status": 0}]))
+    assert state["working"] is False
+    assert state["inconclusive"] is True
+
+
+def test_tracker_state_unknown_when_no_status():
+    # When Deluge exposes no numeric status, the guard is disabled so message
+    # classification stays authoritative.
+    state = tracker_state(
+        torrent(trackers=[{"url": "https://a/announce", "message": "Unregistered torrent"}])
+    )
+    assert state["working"] is False
+    assert state["inconclusive"] is False
+    assert state["status_known"] is False
 
 
 @pytest.mark.parametrize(

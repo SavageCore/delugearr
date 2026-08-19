@@ -28,6 +28,11 @@ AUTH_PASSWORD=CHANGE_ME
 # (webhook/topic URL, Discord username/avatar, ntfy access token, event
 # triggers) are configured in the UI.
 # NOTIFY_MAX_ITEMS=25
+# Optional: require a torrent to stay unregistered for N minutes before it is
+# removed, so a single transient "unregistered" tracker response during an
+# outage can't delete a healthy torrent. Set this above your tracker announce
+# interval. 0 = remove immediately. Not env-configurable: set it in
+# Settings > Cleanup behaviour ("Confirm unregistered for (minutes)").
 # Optional TVDB v4 API key (free from thetvdb.com) used to fetch the show
 # banner shown in deletion notifications, matching qbit-manage's artwork.
 # Deletion messages fall back to an image-less embed when unset.

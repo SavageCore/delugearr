@@ -4,13 +4,83 @@ qbit_manage's `rem_unregistered` reads each qBittorrent torrent's tracker error
 message and removes the torrent when the tracker reports it as no longer
 registered. Deluge exposes the same information through the per-torrent
 `tracker_status` string and each tracker's `message` field, so the matching
-logic ports over 1:1 (see modules/util.py `TorrentMessages` and
+logic ports over (see modules/util.py `TorrentMessages` and
 modules/core/remove_unregistered.py upstream).
+
+Two upstream safeguards carry over too:
+
+* `tracker_state()` mirrors qbit_manage's guard that a torrent is only ever
+  removed once every real tracker has reported a terminal state - a WORKING
+  tracker, or one still UPDATING / NOT_CONTACTED, blocks removal.
+* The unregistered confirmation dwell timer is handled by the scanner and the
+  store; this module only classifies messages.
 """
 
 import re
 
 _PREFIX_RE = re.compile(r"^error\s*:\s*", re.IGNORECASE)
+
+# Per-tracker state enum Deluge reports in the numeric ``trackers[].status``
+# field (libtorrent tracker_status). Kept in one place so the mapping can be
+# corrected for a given Deluge/libtorrent build without touching the scanner.
+TRACKER_NOT_CONTACTED = 0
+TRACKER_WORKING = 1
+TRACKER_UPDATING = 2
+TRACKER_NOT_WORKING = 3
+
+# Schemes that count as real announce trackers (vs DHT/PeX/LSD pseudo-entries).
+_REAL_SCHEMES = ("http", "https", "udp", "ws", "wss")
+
+
+def real_trackers(torrent):
+    """Return the real announce trackers of a torrent dict.
+
+    Deluge's ``trackers`` list leads with DHT/PeX/LSD entries that have no
+    host; they provide no signal for unregistered detection and must be
+    excluded, mirroring qbit_manage's real-tracker filter.
+    """
+    out = []
+    for tr in torrent.get("trackers") or []:
+        if not isinstance(tr, dict):
+            continue
+        url = (tr.get("url") or "").lower()
+        if url and url.split(":", 1)[0] in _REAL_SCHEMES:
+            out.append(tr)
+    return out
+
+
+def tracker_state(torrent):
+    """Guard-state for a torrent from its per-tracker status.
+
+    Returns a dict::
+
+        working       - any real tracker reporting WORKING
+        inconclusive  - any real tracker still UPDATING / NOT_CONTACTED
+        status_known  - True when numeric per-tracker status was present, so
+                        the caller can trust working/inconclusive. When Deluge
+                        exposes no status field the guard is skipped and the
+                        message-only classification is authoritative instead.
+
+    A torrent is never removed on incomplete tracker state, so a "dead"
+    conclusion requires every real tracker to have reported a terminal state.
+    """
+    working = False
+    inconclusive = False
+    status_known = False
+    for tr in real_trackers(torrent):
+        raw = tr.get("status")
+        if raw is None:
+            continue
+        try:
+            status = int(raw)
+        except (TypeError, ValueError):
+            continue
+        status_known = True
+        if status == TRACKER_WORKING:
+            working = True
+        elif status in (TRACKER_UPDATING, TRACKER_NOT_CONTACTED):
+            inconclusive = True
+    return {"working": working, "inconclusive": inconclusive, "status_known": status_known}
 
 
 class TorrentMessages:
