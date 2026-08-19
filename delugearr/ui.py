@@ -670,9 +670,6 @@ def _settings(store, scanner=None):
             min=0,
             step=1,
         )
-        unreg_tag = ui.input(
-            "Unregistered marker name", value=current.get("unregistered_tag") or "unregisteredCheck"
-        )
         max_per = ui.number(
             "Max removals per tracker per scan (0 = unlimited)",
             value=float(current.get("max_torrents_per_tracker", 0)),
@@ -696,7 +693,6 @@ def _settings(store, scanner=None):
             interval,
             grace,
             confirm,
-            unreg_tag,
             max_per,
             excluded,
             keep_paths,
@@ -714,7 +710,6 @@ def _settings(store, scanner=None):
                 interval_minutes=max(1, int(interval.value)),
                 grace_minutes=max(0, int(grace.value)),
                 rem_unregistered_confirm_minutes=max(0, int(confirm.value)),
-                unregistered_tag=(unreg_tag.value or "").strip() or "unregisteredCheck",
                 max_torrents_per_tracker=max(0, int(max_per.value)),
                 excluded_labels=split_csv(excluded.value),
                 keep_data_paths=split_csv(keep_paths.value),

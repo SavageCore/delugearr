@@ -13,7 +13,6 @@ DEFAULTS = {
     "filter_completed": True,
     "grace_minutes": 0,
     "rem_unregistered_confirm_minutes": 0,
-    "unregistered_tag": "unregisteredCheck",
     "max_torrents_per_tracker": 0,
     "excluded_labels": [],
     "keep_data_paths": [],
@@ -48,7 +47,6 @@ EDITABLE_KEYS = {
     "filter_completed",
     "grace_minutes",
     "rem_unregistered_confirm_minutes",
-    "unregistered_tag",
     "max_torrents_per_tracker",
     "excluded_labels",
     "keep_data_paths",
@@ -142,6 +140,10 @@ class Store:
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (json.dumps(secrets.token_hex(32)),),
                 )
+            # Deprecated setting - the pending-removal marker label is a fixed
+            # internal constant now; drop any previously-seeded value so it
+            # stops showing up in settings API reads.
+            con.execute("DELETE FROM settings WHERE key='unregistered_tag'")
 
     def _connect(self):
         con = sqlite3.connect(self.path, timeout=30)

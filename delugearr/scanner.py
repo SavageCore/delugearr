@@ -30,6 +30,10 @@ ACTIVE_STATES = {
     "Endgame",
 }
 
+# Marker label recorded alongside a pending-removal marker (audit only; Deluge
+# has no user-facing tags, so this is not user-configurable).
+UNREGISTERED_TAG = "unregisteredCheck"
+
 # nanoid-style alphabet (64 URL-safe chars), same size as a default nanoid.
 _NANOID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz-"
 
@@ -218,7 +222,6 @@ class Scanner:
         filter_completed = bool(settings.get("filter_completed", True))
         grace_min = int(settings.get("grace_minutes", 0) or 0)
         confirm_min = int(settings.get("rem_unregistered_confirm_minutes", 0) or 0)
-        unregistered_tag = settings.get("unregistered_tag") or "unregisteredCheck"
         max_per_tracker = int(settings.get("max_torrents_per_tracker", 0) or 0)
         now = time.time()
         tracker_count = {}
@@ -293,7 +296,7 @@ class Scanner:
                 elapsed = (now - first_seen) / 60.0 if first_seen is not None else None
                 if first_seen is None or elapsed < confirm_min:
                     if first_seen is None and not dry_run:
-                        self.store.set_pending_removal(torrent_hash, unregistered_tag, now)
+                        self.store.set_pending_removal(torrent_hash, UNREGISTERED_TAG, now)
                     stats["pending"] += 1
                     record(torrent, message, status, "pending_confirm", dry_run)
                     continue
