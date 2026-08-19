@@ -693,10 +693,38 @@ def _settings(store, scanner=None):
             ui.label(f"Last known status: {state}").classes(f"text-sm {color}")
 
     with ui.card().classes("w-full max-w-3xl mt-4"):
-        ui.label("API").classes("text-lg font-bold")
+        ui.label("Security").classes("text-lg font-bold")
         ui.label(
-            "Use this key with the X-Api-Key header (or ?apikey= query) on every /api request."
-            f" See {config.base_path()}/api/docs for the spec."
+            "Skip the login page for requests coming from trusted networks "
+            "(e.g. your Tailscale subnet). The REST API always requires the API key."
+        ).classes("text-sm text-grey")
+
+        bypass = ui.switch(
+            "Bypass login for trusted networks",
+            value=bool(current.get("auth_bypass_enabled", False)),
+        ).classes("w-full max-w-2xl")
+
+        trusted_networks = ui.input(
+            "Trusted networks - bypass login (comma-separated CIDRs)",
+            value=", ".join(current.get("trusted_networks") or []),
+        ).classes("w-full max-w-2xl")
+        trusted_networks.props(
+            'hint="e.g. 100.64.0.0/10 (Tailscale IPv4), fd7a:115c:a1e0::/48 (Tailscale IPv6). Localhost is trusted by default."'
+        )
+
+        trusted_proxies = ui.input(
+            "Trusted proxies - may set X-Forwarded-For (comma-separated CIDRs)",
+            value=", ".join(current.get("trusted_proxies") or []),
+        ).classes("w-full max-w-2xl")
+        trusted_proxies.props(
+            'hint="Only requests from these peers are allowed to set X-Forwarded-For. Set your reverse proxy here."'
+        )
+
+        ui.separator().classes("my-2")
+        ui.label("API key").classes("text-lg font-bold")
+        ui.label(
+            "The API always requires this key via the X-Api-Key header (or ?apikey= query)"
+            f" on every /api request. See {config.base_path()}/api/docs for the spec."
         ).classes("text-sm text-grey")
         api_key = store.api_key()
         with ui.row().classes("items-center gap-2 w-full"):
@@ -705,20 +733,31 @@ def _settings(store, scanner=None):
                 "click",
                 lambda: (ui.clipboard.write(key_input.value), ui.notify("API key copied", type="positive")),
             )
-        ui.button(
-            "Regenerate key",
-            icon="refresh",
-            on_click=lambda: confirm_dialog(
-                "Regenerate API key",
-                "The current key will stop working immediately. Continue?",
-                do_regenerate,
-            ),
-        )
 
-    def do_regenerate():
-        key_input.value = store.regenerate_api_key()
-        key_input.update()
-        ui.notify("API key regenerated", type="positive")
+        def save_security():
+            store.update_settings(
+                auth_bypass_enabled=bool(bypass.value),
+                trusted_networks=split_csv(trusted_networks.value),
+                trusted_proxies=split_csv(trusted_proxies.value),
+            )
+            ui.notify("Security settings saved", type="positive")
+
+        def do_regenerate():
+            key_input.value = store.regenerate_api_key()
+            key_input.update()
+            ui.notify("API key regenerated", type="positive")
+
+        with ui.row().classes("items-center gap-4"):
+            ui.button("Save security settings", icon="save", on_click=save_security)
+            ui.button(
+                "Regenerate key",
+                icon="refresh",
+                on_click=lambda: confirm_dialog(
+                    "Regenerate API key",
+                    "The current key will stop working immediately. Continue?",
+                    do_regenerate,
+                ),
+            )
 
     notifications_card(store)
 

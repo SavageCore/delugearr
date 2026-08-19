@@ -54,6 +54,18 @@ def test_health_is_open(api):
     assert resp.json() == {"status": "ok"}
 
 
+def test_api_requires_key_even_from_trusted_network(api):
+    client, store = api
+    store.update_settings(auth_bypass_enabled=True, trusted_networks=["127.0.0.1/32"])
+    resp = client.get("/delugearr/api/status")
+    assert resp.status_code == 401
+    resp = client.get(
+        "/delugearr/api/status",
+        headers={"X-Api-Key": store.api_key(), "X-Forwarded-For": "10.0.0.1"},
+    )
+    assert resp.status_code == 200
+
+
 def test_status_requires_key(api):
     client, _store = api
     assert client.get("/delugearr/api/status").status_code == 401

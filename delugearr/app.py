@@ -25,11 +25,14 @@ from . import ui as ui_module
 from .api import build_router
 from .notifier import DEFAULT_AVATAR
 from .scanner import Scanner
+from .security import effective_client_ip, should_bypass_auth
 from .store import Store
 
 log = logging.getLogger("delugearr")
 
 UNRESTRICTED_PATHS = {"", "/login", "/favicon.ico"}
+
+_store = None
 
 
 class Scheduler(threading.Thread):
@@ -72,6 +75,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             or relative.startswith("/_nicegui")
         ):
             return await call_next(request)
+        if _store is not None:
+            settings = _store.get_settings()
+            ip = effective_client_ip(request, settings.get("trusted_proxies"))
+            if should_bypass_auth(ip, settings):
+                return await call_next(request)
         return RedirectResponse(f"{root_path}/login?redirect_to={relative}")
 
 
@@ -84,6 +92,8 @@ def _storage_secret(store):
 
 
 def create_app(store, scanner):
+    global _store
+    _store = store
     base = config.base_path()
     fastapi_app = FastAPI(
         title="Delugearr",

@@ -112,6 +112,18 @@ def default_notify_artwork():
     return _bool(env("NOTIFY_ARTWORK", "1"), True)
 
 
+def auth_bypass_enabled():
+    return _bool(env("AUTH_BYPASS_ENABLED", None), False)
+
+
+def trusted_networks():
+    return _json_list(env("TRUSTED_NETWORKS", None), ["127.0.0.1/32", "::1/128"])
+
+
+def trusted_proxies():
+    return _json_list(env("TRUSTED_PROXIES", None), ["127.0.0.1/32", "::1/128"])
+
+
 def store_defaults():
     """Seed values used when the store is first initialised."""
     return {
@@ -124,4 +136,7 @@ def store_defaults():
         "notify_url_base": notify_url_base(),
         "tvdb_api_key": tvdb_api_key(),
         "notify_artwork": default_notify_artwork(),
+        "auth_bypass_enabled": auth_bypass_enabled(),
+        "trusted_networks": trusted_networks(),
+        "trusted_proxies": trusted_proxies(),
     }

@@ -22,6 +22,9 @@ DEFAULTS = {
     "notify_url_base": "",
     "tvdb_api_key": "",
     "notify_artwork": False,
+    "auth_bypass_enabled": False,
+    "trusted_networks": ["127.0.0.1/32", "::1/128"],
+    "trusted_proxies": ["127.0.0.1/32", "::1/128"],
     "api_key": None,
     "storage_secret": None,
     "last_scan_at": None,
@@ -45,6 +48,9 @@ EDITABLE_KEYS = {
     "notify_url_base",
     "tvdb_api_key",
     "notify_artwork",
+    "auth_bypass_enabled",
+    "trusted_networks",
+    "trusted_proxies",
 }
 
 _SCHEMA = """

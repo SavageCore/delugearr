@@ -110,6 +110,9 @@ class SettingsUpdate(BaseModel):
     notify_url_base: str | None = None
     tvdb_api_key: str | None = None
     notify_artwork: bool | None = None
+    auth_bypass_enabled: bool | None = None
+    trusted_networks: list[str] | None = None
+    trusted_proxies: list[str] | None = None
 
 
 def build_router(store, scanner) -> APIRouter:
