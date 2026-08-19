@@ -5,6 +5,7 @@ DELUGE_PASSWORD=CHANGE_ME
 PORT=11012
 # Optional: mount the app under a sub-path (e.g. /delugearr) behind a reverse
 # proxy that strips the prefix. Default: served at the root (/).
+# Also editable in Settings > Server (saving restarts the app to apply).
 # BASE_PATH=/delugearr
 CONFIG_PATH=/etc/delugearr
 # 1 = detect + log only (default, safe). 0 = actually remove torrents.
@@ -17,6 +18,7 @@ AUTH_PASSWORD=CHANGE_ME
 # STORAGE_SECRET=changeme
 # Bind address for the server. Defaults to localhost; set 0.0.0.0 to expose it
 # on the network (put a reverse proxy in front if you do).
+# Also editable in Settings > Server (saving restarts the app to apply).
 # HOST=0.0.0.0
 # JSON list of paths whose data must never be deleted (optional safety net;
 # unregistered torrents otherwise delete torrent + data).

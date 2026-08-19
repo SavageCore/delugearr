@@ -206,6 +206,43 @@ def test_settings_put_updates(api):
     assert settings["deluge_password"] == "newpass"
 
 
+def test_settings_put_updates_host_port_base_path(api):
+    client, store = api
+    headers = {"X-Api-Key": store.api_key()}
+    resp = client.put(
+        "/delugearr/api/settings",
+        headers=headers,
+        json={"host": "0.0.0.0", "port": 8080, "base_path": "/delugearr"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["host"] == "0.0.0.0"
+    assert body["port"] == 8080
+    assert body["base_path"] == "/delugearr"
+    settings = store.get_settings()
+    assert (settings["host"], settings["port"], settings["base_path"]) == ("0.0.0.0", 8080, "/delugearr")
+
+
+def test_settings_put_validates_server_options(api):
+    client, store = api
+    headers = {"X-Api-Key": store.api_key()}
+
+    resp = client.put("/delugearr/api/settings", headers=headers, json={"host": "   "})
+    assert resp.status_code == 400
+
+    resp = client.put("/delugearr/api/settings", headers=headers, json={"base_path": "delugearr"})
+    assert resp.status_code == 400
+
+    resp = client.put("/delugearr/api/settings", headers=headers, json={"port": 0})
+    assert resp.status_code == 422
+    resp = client.put("/delugearr/api/settings", headers=headers, json={"port": 70000})
+    assert resp.status_code == 422
+
+    resp = client.put("/delugearr/api/settings", headers=headers, json={"base_path": "/delugearr/"})
+    assert resp.status_code == 200
+    assert resp.json()["base_path"] == "/delugearr"
+
+
 def test_remove_and_exempt_roundtrip(api):
     client, store = api
     key = store.api_key()

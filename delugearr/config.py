@@ -8,7 +8,10 @@ from the defaults defined here.
 
 import json
 import os
+import sys
 from pathlib import Path
+
+_server_overrides = {}
 
 
 def env(key, default=None):
@@ -72,16 +75,43 @@ def storage_secret():
     return env("STORAGE_SECRET", "")
 
 
+def apply_settings(settings):
+    """Let persisted host/port/URL base settings win over env at boot.
+
+    Called once the store is available (see app.main). On first boot the store
+    was seeded from the env values, so this is a no-op unless the user changed
+    them in the UI.
+    """
+    host_v = settings.get("host")
+    if host_v:
+        _server_overrides["host"] = str(host_v)
+    port_v = settings.get("port")
+    if port_v:
+        _server_overrides["port"] = _int(port_v, 11012)
+    base_v = settings.get("base_path")
+    if base_v is not None:
+        _server_overrides["base_path"] = str(base_v).rstrip("/")
+
+
 def base_path():
-    return env("BASE_PATH", "").rstrip("/")
+    return (_server_overrides.get("base_path", env("BASE_PATH", "/")) or "/").rstrip("/")
 
 
 def host():
-    return env("HOST", "127.0.0.1")
+    return _server_overrides.get("host") or env("HOST", "127.0.0.1")
 
 
 def port():
-    return _int(env("PORT", "11012"), 11012)
+    return _server_overrides.get("port") or _int(env("PORT", "11012"), 11012)
+
+
+def restart_app():
+    """Replace the running process so host/port/URL base changes take effect.
+
+    Persisted settings are re-read from the store on boot, so re-execing is
+    enough - no CLI args are needed. Works under systemd and quick-start alike.
+    """
+    os.execv(sys.executable, [sys.executable, "-m", "delugearr"])
 
 
 def default_dry_run():
@@ -132,6 +162,9 @@ def store_defaults():
         "keep_data_paths": default_keep_data_paths(),
         "deluge_url": deluge_url(),
         "deluge_password": deluge_password(),
+        "host": host(),
+        "port": port(),
+        "base_path": base_path(),
         "notify_max_items": default_notify_max_items(),
         "notify_url_base": notify_url_base(),
         "tvdb_api_key": tvdb_api_key(),

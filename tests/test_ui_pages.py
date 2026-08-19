@@ -178,6 +178,48 @@ async def test_dashboard_filters_reload_from_server(runtime):
         await user.should_see("Settings")
         await user.should_see("API key")
         await user.should_see("Deluge connection")
+        await user.should_see("Bind address")
+        await user.should_see("URL base (reverse proxy sub-path)")
+
+
+async def test_server_settings_save_persists_and_restarts(runtime, monkeypatch):
+    import time
+
+    from delugearr import config as config_module
+
+    restarts = []
+    monkeypatch.setattr(config_module, "restart_app", lambda: restarts.append(True))
+    monkeypatch.setattr("delugearr.ui.time.sleep", lambda _s: None)
+    store, scanner = runtime
+    async with user_simulation(root=lambda: _settings(store, scanner)) as user:
+        await user.open("/")
+        elements = user.client.elements.values()
+        host_input = next(
+            e for e in elements if isinstance(e, ui.input) and e.props.get("label") == "Bind address"
+        )
+        port_input = next(e for e in elements if isinstance(e, ui.number) and e.props.get("label") == "Port")
+        base_input = next(
+            e
+            for e in elements
+            if isinstance(e, ui.input) and e.props.get("label") == "URL base (reverse proxy sub-path)"
+        )
+        host_input.value = "0.0.0.0"
+        port_input.value = 8080
+        base_input.value = "/delugearr"
+        save_btn = next(e for e in elements if isinstance(e, ui.button) and e.text == "Save server settings")
+        for listener in save_btn._event_listeners.values():  # noqa: SLF001
+            if listener.type == "click":
+                with user.client:
+                    events.handle_event(
+                        listener.handler,
+                        events.GenericEventArguments(sender=save_btn, client=user.client, args=[]),
+                    )
+    settings = store.get_settings()
+    assert (settings["host"], settings["port"], settings["base_path"]) == ("0.0.0.0", 8080, "/delugearr")
+    deadline = time.time() + 1
+    while not restarts and time.time() < deadline:
+        time.sleep(0.01)
+    assert restarts == [True]
 
 
 async def test_notification_dialog_builds_on_add(runtime):

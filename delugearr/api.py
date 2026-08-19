@@ -10,7 +10,7 @@ MCP server can fetch it: GET {BASE_PATH}/api/openapi.json (docs UI at
 import threading
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import config
 from .deluge_client import DelugeError
@@ -106,6 +106,9 @@ class SettingsUpdate(BaseModel):
     extra_ignore: list[str] | None = None
     deluge_url: str | None = None
     deluge_password: str | None = None
+    host: str | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
+    base_path: str | None = None
     notify_max_items: int | None = None
     notify_url_base: str | None = None
     tvdb_api_key: str | None = None
@@ -223,6 +226,16 @@ def build_router(store, scanner) -> APIRouter:
     @router.put("/api/settings", **keyed)
     def settings_put(body: SettingsUpdate) -> dict:
         updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        if "host" in updates:
+            host = (updates["host"] or "").strip()
+            if not host:
+                raise HTTPException(status_code=400, detail="host cannot be empty")
+            updates["host"] = host
+        if "base_path" in updates:
+            base = (updates["base_path"] or "").strip()
+            if base and not base.startswith("/"):
+                raise HTTPException(status_code=400, detail="base_path must start with '/' or be empty")
+            updates["base_path"] = base.rstrip("/") or "/"
         store.update_settings(**updates)
         return settings_get()
 

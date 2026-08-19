@@ -1,5 +1,6 @@
 """Store tests: api key lifecycle and dashboard/scan run separation."""
 
+from delugearr import config
 from delugearr.store import Store
 
 
@@ -24,6 +25,18 @@ def test_api_key_auto_generated(tmp_path):
     key = store.api_key()
     assert key
     assert len(key) == 64  # secrets.token_hex(32)
+
+
+def test_server_defaults_seeded_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("CONFIG_PATH", str(tmp_path))
+    monkeypatch.setenv("HOST", "0.0.0.0")
+    monkeypatch.setenv("PORT", "8080")
+    monkeypatch.setenv("BASE_PATH", "/delugearr")
+    store = Store(config.db_path(), defaults=config.store_defaults())
+    settings = store.get_settings()
+    assert settings["host"] == "0.0.0.0"
+    assert settings["port"] == 8080
+    assert settings["base_path"] == "/delugearr"
 
 
 def test_regenerate_api_key(tmp_path):

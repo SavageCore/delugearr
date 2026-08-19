@@ -133,6 +133,7 @@ def _setup_logging():
 def main():
     _setup_logging()
     store = Store(config.db_path(), defaults=config.store_defaults())
+    config.apply_settings(store.get_settings())
     scanner = Scanner(store=store)
     Scheduler(scanner, store).start()
     app = create_app(store, scanner)

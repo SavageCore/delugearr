@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 from datetime import datetime
 
 from nicegui import app, events, run, ui
@@ -591,6 +592,59 @@ def _settings(store, scanner=None):
     current = store.get_settings()
 
     with ui.card().classes("w-full max-w-3xl"):
+        ui.label("Server").classes("text-lg font-bold")
+        ui.label(
+            "Where the web UI and API listen. Saving restarts delugearr automatically "
+            "so the new address, port and URL base take effect immediately."
+        ).classes("text-sm text-grey")
+        bind_host = (
+            ui.input("Bind address", value=current.get("host") or "127.0.0.1")
+            .props(
+                'hint="127.0.0.1 = local only. Use 0.0.0.0 to expose on the network - put a reverse proxy in front."'
+            )
+            .classes("w-full max-w-2xl")
+        )
+        bind_port = ui.number(
+            "Port", value=float(current.get("port") or 11012), min=1, max=65535, step=1
+        ).classes("w-full max-w-2xl")
+        url_base = (
+            ui.input(
+                "URL base (reverse proxy sub-path)",
+                value=current.get("base_path") or "/",
+                placeholder="/delugearr",
+            )
+            .props('hint="Empty or / serves at the root. Must start with a slash."')
+            .classes("w-full max-w-2xl")
+        )
+
+        def save_server():
+            base = (url_base.value or "").strip()
+            if base and not base.startswith("/"):
+                ui.notify("URL base must start with / or be empty", type="negative")
+                return
+            try:
+                port_value = int(bind_port.value)
+            except (TypeError, ValueError):
+                port_value = -1
+            if not 1 <= port_value <= 65535:
+                ui.notify("Port must be between 1 and 65535", type="negative")
+                return
+            store.update_settings(
+                host=(bind_host.value or "127.0.0.1").strip() or "127.0.0.1",
+                port=port_value,
+                base_path=base.rstrip("/") or "/",
+            )
+            ui.notify("Server settings saved - restarting delugearr...", type="positive")
+
+            def reboot():
+                time.sleep(1.0)
+                config.restart_app()
+
+            threading.Thread(target=reboot, daemon=True).start()
+
+        ui.button("Save server settings", icon="save", on_click=save_server)
+
+    with ui.card().classes("w-full max-w-3xl mt-4"):
         ui.label("Cleanup behaviour").classes("text-lg font-bold")
 
         dry_run = ui.switch(
