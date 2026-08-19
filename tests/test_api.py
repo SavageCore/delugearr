@@ -230,6 +230,10 @@ def test_settings_put_validates_server_options(api):
     resp = client.put("/delugearr/api/settings", headers=headers, json={"host": "   "})
     assert resp.status_code == 400
 
+    resp = client.put("/delugearr/api/settings", headers=headers, json={"host": "*"})
+    assert resp.status_code == 200
+    assert resp.json()["host"] == "0.0.0.0"
+
     resp = client.put("/delugearr/api/settings", headers=headers, json={"base_path": "delugearr"})
     assert resp.status_code == 400
 

@@ -16,8 +16,8 @@ AUTH_USER=admin
 AUTH_PASSWORD=CHANGE_ME
 # Optional: fixed session secret; generated and persisted automatically if unset.
 # STORAGE_SECRET=changeme
-# Bind address for the server. Defaults to localhost; set 0.0.0.0 to expose it
-# on the network (put a reverse proxy in front if you do).
+# Bind address for the server. Defaults to localhost; use '*' to bind all
+# interfaces (translates to 0.0.0.0; put a reverse proxy in front if you do).
 # Also editable in Settings > Server (saving restarts the app to apply).
 # HOST=0.0.0.0
 # JSON list of paths whose data must never be deleted (optional safety net;

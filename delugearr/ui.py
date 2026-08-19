@@ -599,9 +599,7 @@ def _settings(store, scanner=None):
         ).classes("text-sm text-grey")
         bind_host = (
             ui.input("Bind address", value=current.get("host") or "127.0.0.1")
-            .props(
-                'hint="127.0.0.1 = local only. Use 0.0.0.0 to expose on the network - put a reverse proxy in front."'
-            )
+            .props("hint=\"Valid IP address, localhost or '*' for all interfaces\"")
             .classes("w-full max-w-2xl")
         )
         bind_port = ui.number(
@@ -629,8 +627,9 @@ def _settings(store, scanner=None):
             if not 1 <= port_value <= 65535:
                 ui.notify("Port must be between 1 and 65535", type="negative")
                 return
+            host_value = (bind_host.value or "").strip() or "127.0.0.1"
             store.update_settings(
-                host=(bind_host.value or "127.0.0.1").strip() or "127.0.0.1",
+                host="0.0.0.0" if host_value == "*" else host_value,
                 port=port_value,
                 base_path=base.rstrip("/") or "/",
             )

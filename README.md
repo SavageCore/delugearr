@@ -43,11 +43,11 @@ Scan interval, dry run and exclusions are all editable there too.
   and the session secret.
 - `AUTH_USER` / `AUTH_PASSWORD` are the web UI login. Set them: without a
   password nobody can log in.
-- The server listens on `127.0.0.1:11012` at the root path. Set `HOST=0.0.0.0`
-  to expose it on the network, or leave it local and put a reverse proxy in
-  front. To serve it under a sub-path (e.g. `/delugearr`), set `BASE_PATH`.
-  These are also editable in **Settings > Server**; saving restarts the app
-  automatically so the change takes effect (Sonarr-style).
+- The server listens on `127.0.0.1:11012` at the root path. Set `HOST=*` (or
+  `0.0.0.0`) to expose it on the network, or leave it local and put a reverse
+  proxy in front. To serve it under a sub-path (e.g. `/delugearr`), set
+  `BASE_PATH`. These are also editable in **Settings > Server**; saving restarts
+  the app automatically so the change takes effect (Sonarr-style).
 - To reach the UI over Tailscale **without** the shared (e.g. nginx basic-auth)
   entry point, `deploy.sh` installs `nginx-delugearr-tailscale.conf` — a vhost
   bound to the seedbox's Tailscale IP with a Tailscale TLS cert, with no basic

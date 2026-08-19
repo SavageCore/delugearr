@@ -98,7 +98,8 @@ def base_path():
 
 
 def host():
-    return _server_overrides.get("host") or env("HOST", "127.0.0.1")
+    value = _server_overrides.get("host") or env("HOST", "127.0.0.1")
+    return "0.0.0.0" if value == "*" else value
 
 
 def port():

@@ -230,7 +230,7 @@ def build_router(store, scanner) -> APIRouter:
             host = (updates["host"] or "").strip()
             if not host:
                 raise HTTPException(status_code=400, detail="host cannot be empty")
-            updates["host"] = host
+            updates["host"] = "0.0.0.0" if host == "*" else host
         if "base_path" in updates:
             base = (updates["base_path"] or "").strip()
             if base and not base.startswith("/"):
