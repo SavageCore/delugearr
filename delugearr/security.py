@@ -8,6 +8,10 @@ cannot spoof a trusted address.
 
 import ipaddress
 
+# Localhost is trusted by default, even when the stored trusted_networks /
+# trusted_proxies list was accidentally written without it.
+ALWAYS_TRUSTED = ("127.0.0.1/32", "::1/128")
+
 
 def _networks(cidrs):
     nets = []
@@ -30,7 +34,7 @@ def _contains(nets, ip):
 def effective_client_ip(request, trusted_proxies):
     """Return the effective client IP, honouring XFF only from trusted proxies."""
     peer = request.client.host if request.client else ""
-    proxies = _networks(trusted_proxies)
+    proxies = _networks(trusted_proxies) + _networks(ALWAYS_TRUSTED)
     if not peer or not _contains(proxies, peer):
         return peer
     xff = request.headers.get("x-forwarded-for")
@@ -46,4 +50,5 @@ def should_bypass_auth(client_ip, settings):
     """True when bypass is enabled and the client is in a trusted network."""
     if not settings.get("auth_bypass_enabled"):
         return False
-    return _contains(_networks(settings.get("trusted_networks")), client_ip)
+    network_list = _networks(settings.get("trusted_networks")) + _networks(ALWAYS_TRUSTED)
+    return _contains(network_list, client_ip)

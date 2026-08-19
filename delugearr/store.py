@@ -36,6 +36,10 @@ DEFAULTS = {
     "data_version": 0,
 }
 
+# Always-trusted localhost entries, re-merged into any trusted_networks /
+# trusted_proxies update so localhost can't be accidentally dropped.
+LOCALHOST_NETWORKS = ("127.0.0.1/32", "::1/128")
+
 EDITABLE_KEYS = {
     "dry_run",
     "interval_minutes",
@@ -195,6 +199,12 @@ class Store:
             for key, value in kwargs.items():
                 if key not in DEFAULTS:
                     continue
+                if key in ("trusted_networks", "trusted_proxies"):
+                    merged = list(value or [])
+                    for net in LOCALHOST_NETWORKS:
+                        if net not in merged:
+                            merged.append(net)
+                    value = merged
                 con.execute(
                     "INSERT INTO settings(key,value) VALUES(?,?) "
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

@@ -108,6 +108,25 @@ def test_data_version_bumps_on_mutation(tmp_path):
     assert store.get_settings()["data_version"] == version + 4
 
 
+def test_trusted_networks_always_keep_localhost(tmp_path):
+    store = make_store(tmp_path)
+    store.update_settings(auth_bypass_enabled=True, trusted_networks=["100.64.0.0/10"])
+    settings = store.get_settings()
+    assert set(settings["trusted_networks"]) == {"127.0.0.1/32", "::1/128", "100.64.0.0/10"}
+    store.update_settings(trusted_networks=[])
+    assert set(store.get_settings()["trusted_networks"]) == {"127.0.0.1/32", "::1/128"}
+
+
+def test_trusted_proxies_always_keep_localhost(tmp_path):
+    store = make_store(tmp_path)
+    store.update_settings(trusted_proxies=["192.168.1.0/24"])
+    assert set(store.get_settings()["trusted_proxies"]) == {
+        "127.0.0.1/32",
+        "::1/128",
+        "192.168.1.0/24",
+    }
+
+
 def test_search_history_paginates_and_filters(tmp_path):
     store = make_store(tmp_path)
     for i in range(60):
