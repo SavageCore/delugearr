@@ -1,11 +1,15 @@
 """SQLite persistence: settings, detection/audit history, exempt list."""
 
+import contextlib
 import json
+import logging
 import secrets
 import sqlite3
 import threading
 import time
 from pathlib import Path
+
+log = logging.getLogger("delugearr.store")
 
 DEFAULTS = {
     "dry_run": True,
@@ -120,6 +124,14 @@ CREATE INDEX IF NOT EXISTS idx_detections_hash ON detections(torrent_hash);
 """
 
 
+def _is_disk_full_error(exc):
+    """True for sqlite disk-full / disk-I/O failures (0B free on volume)."""
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    msg = str(exc).lower()
+    return "disk i/o" in msg or "disk is full" in msg or "database or disk is full" in msg
+
+
 class Store:
     def __init__(self, path, defaults=None):
         self.path = str(path)
@@ -127,6 +139,11 @@ class Store:
         if defaults:
             self._defaults.update(defaults)
         self._lock = threading.Lock()
+        # In-memory fallback when the disk is full and SQLite writes fail.
+        # Reads served from cache keep the scheduler alive; surfaced via
+        # get_settings()["last_scan_error"] so /api/status still reports it.
+        self._memory_last_error = None
+        self._cached_settings = None
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as con:
             con.executescript(_SCHEMA)
@@ -149,7 +166,20 @@ class Store:
     def _connect(self):
         con = sqlite3.connect(self.path, timeout=30)
         con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL")
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError as exc:
+            # WAL needs -wal/-shm sidecar files; with 0B free that fails with
+            # "disk I/O error". Fall back to DELETE mode so reads still work
+            # (slower, but the scheduler stays alive). Next _connect retries
+            # WAL automatically once space returns.
+            if _is_disk_full_error(exc):
+                log.warning("WAL failed (disk full), falling back to DELETE mode: %s", exc)
+                with contextlib.suppress(Exception):
+                    con.execute("PRAGMA journal_mode=DELETE")
+            else:
+                con.close()
+                raise
         con.execute("PRAGMA busy_timeout=30000")
         return con
 
@@ -205,7 +235,43 @@ class Store:
                     out[key] = raw
             return out
 
-        return self._run(fn)
+        try:
+            settings = self._run(fn)
+        except sqlite3.OperationalError as exc:
+            if _is_disk_full_error(exc) and self._cached_settings is not None:
+                # Disk full: serve last-known settings so the scheduler can
+                # keep its interval loop alive without touching the disk.
+                log.warning("get_settings failed (disk full), serving cached settings: %s", exc)
+                out = dict(self._cached_settings)
+                if self._memory_last_error is not None:
+                    out["last_scan_error"] = self._memory_last_error
+                return out
+            raise
+        self._cached_settings = dict(settings)
+        if self._memory_last_error is not None:
+            # A deferred-error write failed earlier; surface it until a write
+            # succeeds (set_last_scan_error or update_settings clears it).
+            settings["last_scan_error"] = self._memory_last_error
+        return settings
+
+    def set_last_scan_error(self, message):
+        """Best-effort persist of last_scan_error for /api/status.
+
+        Never raises: with 0B free the SQLite write itself fails, so the
+        message is kept in memory and overlaid by get_settings() until the
+        disk frees up and a later write succeeds.
+        """
+        try:
+            self.update_settings(last_scan_error=message)
+        except sqlite3.OperationalError as exc:
+            if _is_disk_full_error(exc):
+                log.warning("could not persist last_scan_error (disk full): %s", exc)
+                self._memory_last_error = message
+                return
+            raise
+        except Exception:
+            log.exception("could not persist last_scan_error")
+            self._memory_last_error = message
 
     def update_settings(self, **kwargs):
         def fn(con):
@@ -226,6 +292,10 @@ class Store:
             self._bump(con)
 
         self._run(fn)
+        if "last_scan_error" in kwargs:
+            # DB now authoritative; drop any in-memory overlay (a successful
+            # scan clearing the error also clears the deferred message).
+            self._memory_last_error = None
 
     def api_key(self):
         return self.get_settings().get("api_key")
