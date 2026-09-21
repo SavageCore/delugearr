@@ -324,3 +324,92 @@ def test_old_database_gets_new_columns(tmp_path):
     row = store.get_run_detections("run-1")[0]
     assert row["ratio"] == 1.5
     assert row["seeding_time"] == 7200
+
+
+def test_disk_full_wal_fallback(tmp_path, monkeypatch):
+    """PRAGMA journal_mode=WAL failing with disk I/O error must not raise."""
+    import sqlite3
+
+    from delugearr import store as store_module
+
+    store = make_store(tmp_path)
+    real_connect = sqlite3.connect
+
+    class ConProxy:
+        def __init__(self, real):
+            self._real = real
+
+        def execute(self, sql, *a, **k):
+            if "journal_mode=WAL" in sql:
+                raise sqlite3.OperationalError("disk I/O error")
+            return self._real.execute(sql, *a, **k)
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def __setattr__(self, name, value):
+            if name == "_real":
+                super().__setattr__(name, value)
+            else:
+                setattr(self._real, name, value)
+
+    def flaky_connect(*args, **kwargs):
+        return ConProxy(real_connect(*args, **kwargs))
+
+    monkeypatch.setattr(store_module.sqlite3, "connect", flaky_connect)
+    # Must fall back to DELETE and still serve settings.
+    settings = store.get_settings()
+    assert settings["interval_minutes"] == 30
+
+
+def test_disk_full_non_wal_error_reraised(tmp_path, monkeypatch):
+    import sqlite3
+
+    from delugearr import store as store_module
+
+    store = make_store(tmp_path)
+    real_connect = sqlite3.connect
+
+    class ConProxy:
+        def __init__(self, real):
+            self._real = real
+
+        def execute(self, sql, *a, **k):
+            if "journal_mode=WAL" in sql:
+                raise sqlite3.OperationalError("no such table: foo")
+            return self._real.execute(sql, *a, **k)
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def __setattr__(self, name, value):
+            if name == "_real":
+                super().__setattr__(name, value)
+            else:
+                setattr(self._real, name, value)
+
+    def flaky_connect(*args, **kwargs):
+        return ConProxy(real_connect(*args, **kwargs))
+
+    monkeypatch.setattr(store_module.sqlite3, "connect", flaky_connect)
+    try:
+        store.get_settings()
+    except sqlite3.OperationalError as exc:
+        assert "no such table" in str(exc)
+    else:
+        raise AssertionError("expected OperationalError")
+
+
+def test_set_last_scan_error_memory_fallback(tmp_path, monkeypatch):
+    import sqlite3
+
+    store = make_store(tmp_path)
+    assert store.get_settings()["last_scan_error"] is None
+
+    def boom(**kwargs):
+        raise sqlite3.OperationalError("database or disk is full")
+
+    monkeypatch.setattr(store, "update_settings", boom)
+    # Must never raise, even when the DB write fails.
+    store.set_last_scan_error("disk I/O error: disk full, scan deferred")
+    assert store.get_settings()["last_scan_error"].startswith("disk I/O error")

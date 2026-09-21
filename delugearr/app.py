@@ -9,9 +9,12 @@ middleware + login page (nginx basic auth stays as defense in depth).
 import logging
 import os
 import secrets
+import shutil
+import sqlite3
 import threading
 import time
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -32,6 +35,17 @@ log = logging.getLogger("delugearr")
 
 UNRESTRICTED_PATHS = {"", "/login", "/favicon.ico"}
 
+# Scheduler survival tuning: retry quickly on disk-full instead of dying,
+# and skip scans before SQLite hits 0B free (WAL needs sidecar space).
+SCHEDULER_RETRY_SECONDS = 60
+MIN_FREE_BYTES = 100 * 1024 * 1024
+
+
+def _is_disk_full_error(exc):
+    msg = str(exc).lower()
+    return "disk i/o" in msg or "disk is full" in msg or "database or disk is full" in msg
+
+
 _store = None
 
 
@@ -43,15 +57,60 @@ class Scheduler(threading.Thread):
         self.scanner = scanner
         self.store = store
 
+    def _db_free_bytes(self):
+        try:
+            parent = Path(self.store.path).parent
+            return shutil.disk_usage(parent if parent.exists() else "/").free
+        except OSError:
+            return None
+
     def run(self):
         time.sleep(10)
         while True:
             try:
+                free = self._db_free_bytes()
+                if free is not None and free < MIN_FREE_BYTES:
+                    msg = f"deferred: disk full ({free} bytes free), scan skipped, will retry"
+                    try:
+                        self.store.set_last_scan_error(msg)
+                    except Exception:
+                        log.debug("set_last_scan_error failed", exc_info=True)
+                    log.warning("Skipping scan, disk full (free=%s bytes)", free)
+                    time.sleep(SCHEDULER_RETRY_SECONDS)
+                    continue
                 self.scanner.scan()
+            except sqlite3.OperationalError as exc:
+                if _is_disk_full_error(exc):
+                    try:
+                        self.store.set_last_scan_error(f"disk I/O error: {exc}, scan deferred")
+                    except Exception:
+                        log.debug("set_last_scan_error failed", exc_info=True)
+                    log.error(
+                        "Scan deferred (disk full), will retry in %ss", SCHEDULER_RETRY_SECONDS, exc_info=True
+                    )
+                    time.sleep(SCHEDULER_RETRY_SECONDS)
+                    continue
+                log.exception("scheduled scan failed")
             except Exception:
                 log.exception("scheduled scan failed")
-            settings = self.store.get_settings()
-            interval = max(60, int(settings.get("interval_minutes") or 30)) * 60
+            try:
+                settings = self.store.get_settings()
+                interval = max(60, int(settings.get("interval_minutes") or 30)) * 60
+            except sqlite3.OperationalError as exc:
+                if _is_disk_full_error(exc):
+                    log.error(
+                        "Could not read settings (disk full), retrying in %ss",
+                        SCHEDULER_RETRY_SECONDS,
+                        exc_info=True,
+                    )
+                else:
+                    log.exception("failed to read settings")
+                time.sleep(SCHEDULER_RETRY_SECONDS)
+                continue
+            except Exception:
+                log.exception("failed to read settings, retrying in %ss", SCHEDULER_RETRY_SECONDS)
+                time.sleep(SCHEDULER_RETRY_SECONDS)
+                continue
             time.sleep(interval)
 
 
